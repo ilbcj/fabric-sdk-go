@@ -78,7 +78,7 @@ func TestChainCodeInvoke(t *testing.T) {
 
 }
 
-func getQueryValue(t *testing.T, chain *fabric_sdk.Chain) (string, error) {
+func getQueryValue(t *testing.T, chain fabric_sdk.Chain) (string, error) {
 
 	var args []string
 	args = append(args, "invoke")
@@ -105,7 +105,7 @@ func getQueryValue(t *testing.T, chain *fabric_sdk.Chain) (string, error) {
 	return "", nil
 }
 
-func invoke(t *testing.T, chain *fabric_sdk.Chain, eventHub *events.EventHub) error {
+func invoke(t *testing.T, chain fabric_sdk.Chain, eventHub events.EventHub) error {
 
 	var args []string
 	args = append(args, "invoke")
@@ -171,7 +171,7 @@ func InitConfigForEndToEnd() {
 	}
 }
 
-func GetChains(t *testing.T) (*fabric_sdk.Chain, *fabric_sdk.Chain) {
+func GetChains(t *testing.T) (fabric_sdk.Chain, fabric_sdk.Chain) {
 
 	client := fabric_sdk.NewClient()
 	ks := &sw.FileBasedKeyStore{}
@@ -244,7 +244,7 @@ func GetChains(t *testing.T) (*fabric_sdk.Chain, *fabric_sdk.Chain) {
 
 }
 
-func GetEventHub(t *testing.T, interestedEvents []*pb.Interest) *events.EventHub {
+func GetEventHub(t *testing.T, interestedEvents []*pb.Interest) events.EventHub {
 	eventHub := events.NewEventHub()
 	foundEventHub := false
 	for _, p := range config.GetPeersConfig() {

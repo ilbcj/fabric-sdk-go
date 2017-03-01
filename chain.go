@@ -47,13 +47,38 @@ var logger = logging.MustGetLogger("fabric_sdk_go")
  * to create the specified channel and asks the peers to join that channel.
  *
  */
-type Chain struct {
+type Chain interface {
+	GetName() string
+	IsSecurityEnabled() bool
+	GetTCertBatchSize() int
+	SetTCertBatchSize(batchSize int)
+	AddPeer(peer Peer)
+	RemovePeer(peer Peer)
+	GetPeers() []Peer
+	AddOrderer(orderer Orderer)
+	RemoveOrderer(orderer Orderer)
+	GetOrderers() []Orderer
+	InitializeChain() bool
+	UpdateChain() bool
+	IsReadonly() bool
+	QueryInfo()
+	QueryBlock(blockNumber int)
+	QueryTransaction(transactionID int)
+	CreateTransactionProposal(chaincodeName string, chainID string, args []string, sign bool, txid string, transientData []byte) (*pb.SignedProposal, *pb.Proposal, error)
+	SendTransactionProposal(signedProposal *pb.SignedProposal, retry int) (map[string]*TransactionProposalResponse, error)
+	CreateInvocationTransaction(chaincodeName string, chainID string, args []string, txid string, transientData []byte) (*common.Envelope, error)
+	SendInvocationTransaction(envelope *common.Envelope) error
+	CreateTransaction(proposal *pb.Proposal, resps []*pb.ProposalResponse) (*pb.Transaction, error)
+	SendTransaction(proposal *pb.Proposal, tx *pb.Transaction) (map[string]*TransactionResponse, error)
+}
+
+type chain struct {
 	name            string // Name of the chain is only meaningful to the client
 	securityEnabled bool   // Security enabled flag
-	peers           map[string]*Peer
+	peers           map[string]Peer
 	tcertBatchSize  int // The number of tcerts to get in each batch
-	orderers        map[string]*Orderer
-	clientContext   *Client
+	orderers        map[string]Orderer
+	clientContext   Client
 }
 
 // TransactionProposalResponse ...
@@ -82,16 +107,16 @@ type TransactionResponse struct {
  * @param {Client} clientContext An instance of {@link Client} that provides operational context
  * such as submitting User etc.
  */
-func NewChain(name string, client *Client) (*Chain, error) {
+func NewChain(name string, client Client) (Chain, error) {
 	if name == "" {
 		return nil, fmt.Errorf("Failed to create Chain. Missing requirement 'name' parameter.")
 	}
 	if client == nil {
 		return nil, fmt.Errorf("Failed to create Chain. Missing requirement 'clientContext' parameter.")
 	}
-	p := make(map[string]*Peer)
-	o := make(map[string]*Orderer)
-	c := &Chain{name: name, securityEnabled: config.IsSecurityEnabled(), peers: p,
+	p := make(map[string]Peer)
+	o := make(map[string]Orderer)
+	c := &chain{name: name, securityEnabled: config.IsSecurityEnabled(), peers: p,
 		tcertBatchSize: config.TcertBatchSize(), orderers: o, clientContext: client}
 	logger.Infof("Constructed Chain instance: %v", c)
 
@@ -103,7 +128,7 @@ func NewChain(name string, client *Client) (*Chain, error) {
  * Get the chain name.
  * @returns {string} The name of the chain.
  */
-func (c *Chain) GetName() string {
+func (c *chain) GetName() string {
 	return c.name
 }
 
@@ -111,7 +136,7 @@ func (c *Chain) GetName() string {
 /**
  * Determine if security is enabled.
  */
-func (c *Chain) IsSecurityEnabled() bool {
+func (c *chain) IsSecurityEnabled() bool {
 	return c.securityEnabled
 }
 
@@ -119,7 +144,7 @@ func (c *Chain) IsSecurityEnabled() bool {
 /**
  * Get the tcert batch size.
  */
-func (c *Chain) GetTCertBatchSize() int {
+func (c *chain) GetTCertBatchSize() int {
 	return c.tcertBatchSize
 }
 
@@ -127,7 +152,7 @@ func (c *Chain) GetTCertBatchSize() int {
 /**
  * Set the tcert batch size.
  */
-func (c *Chain) SetTCertBatchSize(batchSize int) {
+func (c *chain) SetTCertBatchSize(batchSize int) {
 	c.tcertBatchSize = batchSize
 }
 
@@ -137,7 +162,7 @@ func (c *Chain) SetTCertBatchSize(batchSize int) {
  * @param {Peer} peer An instance of the Peer that has been initialized with URL,
  * TLC certificate, and enrollment certificate.
  */
-func (c *Chain) AddPeer(peer *Peer) {
+func (c *chain) AddPeer(peer Peer) {
 	c.peers[peer.GetURL()] = peer
 }
 
@@ -146,7 +171,7 @@ func (c *Chain) AddPeer(peer *Peer) {
  * Remove peer endpoint from chain.
  * @param {Peer} peer An instance of the Peer.
  */
-func (c *Chain) RemovePeer(peer *Peer) {
+func (c *chain) RemovePeer(peer Peer) {
 	delete(c.peers, peer.GetURL())
 }
 
@@ -155,8 +180,8 @@ func (c *Chain) RemovePeer(peer *Peer) {
  * Get peers of a chain from local information.
  * @returns {[]Peer} The peer list on the chain.
  */
-func (c *Chain) GetPeers() []*Peer {
-	var peersArray []*Peer
+func (c *chain) GetPeers() []Peer {
+	var peersArray []Peer
 	for _, v := range c.peers {
 		peersArray = append(peersArray, v)
 	}
@@ -172,8 +197,8 @@ func (c *Chain) GetPeers() []*Peer {
  * All APIs concerning the orderer will broadcast to all orderers simultaneously.
  * @param {Orderer} orderer An instance of the Orderer class.
  */
-func (c *Chain) AddOrderer(orderer *Orderer) {
-	c.orderers[orderer.url] = orderer
+func (c *chain) AddOrderer(orderer Orderer) {
+	c.orderers[orderer.GetURL()] = orderer
 }
 
 // RemoveOrderer ...
@@ -181,8 +206,8 @@ func (c *Chain) AddOrderer(orderer *Orderer) {
  * Remove orderer endpoint from a chain object, this is a local-only operation.
  * @param {Orderer} orderer An instance of the Orderer class.
  */
-func (c *Chain) RemoveOrderer(orderer *Orderer) {
-	delete(c.orderers, orderer.url)
+func (c *chain) RemoveOrderer(orderer Orderer) {
+	delete(c.orderers, orderer.GetURL())
 
 }
 
@@ -190,8 +215,8 @@ func (c *Chain) RemoveOrderer(orderer *Orderer) {
 /**
  * Get orderers of a chain.
  */
-func (c *Chain) GetOrderers() []*Orderer {
-	var orderersArray []*Orderer
+func (c *chain) GetOrderers() []Orderer {
+	var orderersArray []Orderer
 	for _, v := range c.orderers {
 		orderersArray = append(orderersArray, v)
 	}
@@ -207,7 +232,7 @@ func (c *Chain) GetOrderers() []*Orderer {
  * instances only need to call getChain() to obtain the information about this chain.
  * @returns {bool} Whether the chain initialization process was successful.
  */
-func (c *Chain) InitializeChain() bool {
+func (c *chain) InitializeChain() bool {
 	return false
 }
 
@@ -218,7 +243,7 @@ func (c *Chain) InitializeChain() bool {
  * certificate information upon certificate renewals.
  * @returns {bool} Whether the chain update process was successful.
  */
-func (c *Chain) UpdateChain() bool {
+func (c *chain) UpdateChain() bool {
 	return false
 }
 
@@ -229,7 +254,7 @@ func (c *Chain) UpdateChain() bool {
  * can be queried but no new transactions can be submitted.
  * @returns {bool} Is read-only, true or not.
  */
-func (c *Chain) IsReadonly() bool {
+func (c *chain) IsReadonly() bool {
 	return false //to do
 }
 
@@ -239,7 +264,7 @@ func (c *Chain) IsReadonly() bool {
  * (height, known peers).
  * @returns {object} With height, currently the only useful info.
  */
-func (c *Chain) QueryInfo() {
+func (c *chain) QueryInfo() {
 	//to do
 }
 
@@ -249,7 +274,7 @@ func (c *Chain) QueryInfo() {
  * @param {int} blockNumber The number which is the ID of the Block.
  * @returns {object} Object containing the block.
  */
-func (c *Chain) QueryBlock(blockNumber int) {
+func (c *chain) QueryBlock(blockNumber int) {
 	//to do
 }
 
@@ -259,7 +284,7 @@ func (c *Chain) QueryBlock(blockNumber int) {
  * @param {int} transactionID
  * @returns {object} Transaction information containing the transaction.
  */
-func (c *Chain) QueryTransaction(transactionID int) {
+func (c *chain) QueryTransaction(transactionID int) {
 	//to do
 }
 
@@ -269,7 +294,7 @@ func (c *Chain) QueryTransaction(transactionID int) {
  * with the data (chaincodeName, function to call, arguments, transient data, etc.) and signing it using the private key corresponding to the
  * ECert to sign.
  */
-func (c *Chain) CreateTransactionProposal(chaincodeName string, chainID string, args []string, sign bool, txid string, transientData []byte) (*pb.SignedProposal, *pb.Proposal, error) {
+func (c *chain) CreateTransactionProposal(chaincodeName string, chainID string, args []string, sign bool, txid string, transientData []byte) (*pb.SignedProposal, *pb.Proposal, error) {
 
 	argsArray := make([][]byte, len(args))
 	for i, arg := range args {
@@ -310,7 +335,7 @@ func (c *Chain) CreateTransactionProposal(chaincodeName string, chainID string, 
 
 // SendTransactionProposal ...
 // Send  the created proposal to peer for endorsement.
-func (c *Chain) SendTransactionProposal(signedProposal *pb.SignedProposal, retry int) (map[string]*TransactionProposalResponse, error) {
+func (c *chain) SendTransactionProposal(signedProposal *pb.SignedProposal, retry int) (map[string]*TransactionProposalResponse, error) {
 	if c.peers == nil || len(c.peers) == 0 {
 		return nil, fmt.Errorf("peers is nil")
 	}
@@ -321,7 +346,7 @@ func (c *Chain) SendTransactionProposal(signedProposal *pb.SignedProposal, retry
 	var wg sync.WaitGroup
 	for _, p := range c.peers {
 		wg.Add(1)
-		go func(peer *Peer, wg *sync.WaitGroup, tprm map[string]*TransactionProposalResponse) {
+		go func(peer Peer, wg *sync.WaitGroup, tprm map[string]*TransactionProposalResponse) {
 			defer wg.Done()
 			var err error
 			var proposalResponse *pb.ProposalResponse
@@ -350,7 +375,7 @@ func (c *Chain) SendTransactionProposal(signedProposal *pb.SignedProposal, retry
 // forwarded to the endorser server on the node to invoke chaincode
 // arguments: It takes the arguments required to create a transaction proposal
 // returns: transac envelope, error
-func (c *Chain) CreateInvocationTransaction(chaincodeName string, chainID string,
+func (c *chain) CreateInvocationTransaction(chaincodeName string, chainID string,
 	args []string, txid string, transientData []byte) (*common.Envelope, error) {
 	// Get user info and creator id
 	user, err := c.clientContext.GetUserContext("")
@@ -414,7 +439,7 @@ func (c *Chain) CreateInvocationTransaction(chaincodeName string, chainID string
 // must be deployed on the peer to understand this transaction
 // arguments: tranasaction
 // returns: error
-func (c *Chain) SendInvocationTransaction(envelope *common.Envelope) error {
+func (c *chain) SendInvocationTransaction(envelope *common.Envelope) error {
 	var failureCount int
 	transactionResponseMap, err := c.broadcastEnvelope(envelope)
 	if err != nil {
@@ -437,7 +462,7 @@ func (c *Chain) SendInvocationTransaction(envelope *common.Envelope) error {
 /**
  * Create a transaction with proposal response, following the endorsement policy.
  */
-func (c *Chain) CreateTransaction(proposal *pb.Proposal, resps []*pb.ProposalResponse) (*pb.Transaction, error) {
+func (c *chain) CreateTransaction(proposal *pb.Proposal, resps []*pb.ProposalResponse) (*pb.Transaction, error) {
 	if len(resps) == 0 {
 		return nil, fmt.Errorf("At least one proposal response is necessary")
 	}
@@ -534,7 +559,7 @@ func (c *Chain) CreateTransaction(proposal *pb.Proposal, resps []*pb.ProposalRes
  * internal event hub mechanism in order to support the fabric events “BLOCK”, “CHAINCODE” and “TRANSACTION”.
  * These events should cause the method to emit “complete” or “error” events to the application.
  */
-func (c *Chain) SendTransaction(proposal *pb.Proposal, tx *pb.Transaction) (map[string]*TransactionResponse, error) {
+func (c *chain) SendTransaction(proposal *pb.Proposal, tx *pb.Transaction) (map[string]*TransactionResponse, error) {
 	if c.orderers == nil || len(c.orderers) == 0 {
 		return nil, fmt.Errorf("orderers is nil")
 	}
@@ -586,7 +611,7 @@ func (c *Chain) SendTransaction(proposal *pb.Proposal, tx *pb.Transaction) (map[
 }
 
 //broadcastEnvelope will send the given envelope to each orderer
-func (c *Chain) broadcastEnvelope(envelope *common.
+func (c *chain) broadcastEnvelope(envelope *common.
 	Envelope) (map[string]*TransactionResponse, error) {
 	// Check if orderers are defined
 	if c.orderers == nil || len(c.orderers) == 0 {
@@ -606,7 +631,7 @@ func (c *Chain) broadcastEnvelope(envelope *common.
 
 // signObjectWithKey will sign the given object with the given key,
 // hashOpts and signerOpts
-func (c *Chain) signObjectWithKey(object []byte, key bccsp.Key,
+func (c *chain) signObjectWithKey(object []byte, key bccsp.Key,
 	hashOpts bccsp.HashOpts, signerOpts bccsp.SignerOpts) ([]byte, error) {
 	cryptoSuite := c.clientContext.GetCryptoSuite()
 	digest, err := cryptoSuite.Hash(object, hashOpts)
@@ -624,7 +649,7 @@ func (c *Chain) signObjectWithKey(object []byte, key bccsp.Key,
 // collectBroadcastResponses will make the broadcast RPC call and place the
 // response in the given <URL string, response> map. It will add a nil
 // if an error is encountered
-func collectBroadcastResponses(orderer *Orderer, wg *sync.WaitGroup,
+func collectBroadcastResponses(orderer Orderer, wg *sync.WaitGroup,
 	trm map[string]*TransactionResponse, envelope *common.Envelope) {
 	defer wg.Done()
 	var err error

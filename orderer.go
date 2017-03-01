@@ -39,7 +39,12 @@ import (
  * HFC sends a block of transactions of endorsed proposals requiring ordering.
  *
  */
-type Orderer struct {
+type Orderer interface {
+	GetURL() string
+	SendBroadcast(envelope *common.Envelope) error
+}
+
+type orderer struct {
 	url            string
 	grpcDialOption []grpc.DialOption
 }
@@ -48,7 +53,7 @@ type Orderer struct {
 /**
  * Returns a Orderer instance
  */
-func CreateNewOrderer(url string) *Orderer {
+func CreateNewOrderer(url string) Orderer {
 	var opts []grpc.DialOption
 	opts = append(opts, grpc.WithTimeout(time.Second*3))
 	if config.IsTLSEnabled() {
@@ -57,7 +62,7 @@ func CreateNewOrderer(url string) *Orderer {
 	} else {
 		opts = append(opts, grpc.WithInsecure())
 	}
-	return &Orderer{url: url, grpcDialOption: opts}
+	return &orderer{url: url, grpcDialOption: opts}
 }
 
 // GetURL ...
@@ -65,7 +70,7 @@ func CreateNewOrderer(url string) *Orderer {
  * Get the Orderer url. Required property for the instance objects.
  * @returns {string} The address of the Orderer
  */
-func (o *Orderer) GetURL() string {
+func (o *orderer) GetURL() string {
 	return o.url
 }
 
@@ -73,7 +78,7 @@ func (o *Orderer) GetURL() string {
 /**
  * Send the created transaction to Orderer.
  */
-func (o *Orderer) SendBroadcast(envelope *common.Envelope) error {
+func (o *orderer) SendBroadcast(envelope *common.Envelope) error {
 	conn, err := grpc.Dial(o.url, o.grpcDialOption...)
 	if err != nil {
 		return err

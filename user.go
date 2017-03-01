@@ -41,7 +41,18 @@ import (
  * have access to the Peer identity’s private key.
  *
  */
-type User struct {
+type User interface {
+	GetName() string
+	GetRoles() []string
+	SetRoles([]string)
+	GetEnrollmentCertificate() []byte
+	SetEnrollmentCertificate(cert []byte)
+	SetPrivateKey(privateKey bccsp.Key)
+	GetPrivateKey() bccsp.Key
+	GenerateTcerts(count int, attributes []string)
+}
+
+type user struct {
 	name                  string
 	roles                 []string
 	PrivateKey            bccsp.Key // ****This key is temporary We use it to sign transaction until we have tcerts
@@ -60,8 +71,8 @@ type UserJSON struct {
  *
  * @param {string} name - The user name
  */
-func NewUser(name string) *User {
-	return &User{name: name}
+func NewUser(name string) User {
+	return &user{name: name}
 }
 
 // GetName ...
@@ -69,7 +80,7 @@ func NewUser(name string) *User {
  * Get the user name.
  * @returns {string} The user name.
  */
-func (u *User) GetName() string {
+func (u *user) GetName() string {
 	return u.name
 }
 
@@ -78,7 +89,7 @@ func (u *User) GetName() string {
  * Get the roles.
  * @returns {[]string} The roles.
  */
-func (u *User) GetRoles() []string {
+func (u *user) GetRoles() []string {
 	return u.roles
 }
 
@@ -87,7 +98,7 @@ func (u *User) GetRoles() []string {
  * Set the roles.
  * @param roles {[]string} The roles.
  */
-func (u *User) SetRoles(roles []string) {
+func (u *user) SetRoles(roles []string) {
 	u.roles = roles
 }
 
@@ -95,7 +106,7 @@ func (u *User) SetRoles(roles []string) {
 /**
  * Returns the underlying ECert representing this user’s identity.
  */
-func (u *User) GetEnrollmentCertificate() []byte {
+func (u *user) GetEnrollmentCertificate() []byte {
 	return u.enrollmentCertificate
 }
 
@@ -103,7 +114,7 @@ func (u *User) GetEnrollmentCertificate() []byte {
 /**
  * Set the user’s Enrollment Certificate.
  */
-func (u *User) SetEnrollmentCertificate(cert []byte) {
+func (u *user) SetEnrollmentCertificate(cert []byte) {
 	u.enrollmentCertificate = cert
 }
 
@@ -111,7 +122,7 @@ func (u *User) SetEnrollmentCertificate(cert []byte) {
 /**
  * deprecated.
  */
-func (u *User) SetPrivateKey(privateKey bccsp.Key) {
+func (u *user) SetPrivateKey(privateKey bccsp.Key) {
 	u.PrivateKey = privateKey
 }
 
@@ -119,7 +130,7 @@ func (u *User) SetPrivateKey(privateKey bccsp.Key) {
 /**
  * deprecated.
  */
-func (u *User) GetPrivateKey() bccsp.Key {
+func (u *user) GetPrivateKey() bccsp.Key {
 	return u.PrivateKey
 }
 
@@ -131,6 +142,6 @@ func (u *User) GetPrivateKey() bccsp.Key {
  * @param {[]string} attributes  list of attributes to include in the TCert
  * @return {[]tcert} An array of TCerts
  */
-func (u *User) GenerateTcerts(count int, attributes []string) {
+func (u *user) GenerateTcerts(count int, attributes []string) {
 
 }

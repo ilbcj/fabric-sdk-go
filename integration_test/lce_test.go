@@ -74,7 +74,7 @@ func TestLCE(t *testing.T) {
 
 }
 
-func invokeLCEWithTxID(t *testing.T, chain *fabric_sdk.Chain, lcesccId string, txId string) {
+func invokeLCEWithTxID(t *testing.T, chain fabric_sdk.Chain, lcesccId string, txId string) {
 
 	var args []string
 	args = append(args, "invoke")

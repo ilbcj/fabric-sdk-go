@@ -44,20 +44,32 @@ import (
  *
  *
  */
-type Client struct {
-	chains      map[string]*Chain
+type Client interface {
+	NewChain(name string) (Chain, error)
+	GetChain(name string) Chain
+	QueryChainInfo(name string, peers []Peer) (Chain, error)
+	SetStateStore(stateStore kvs.KeyValueStore)
+	GetStateStore() kvs.KeyValueStore
+	SetCryptoSuite(cryptoSuite bccsp.BCCSP)
+	GetCryptoSuite() bccsp.BCCSP
+	SetUserContext(user User, skipPersistence bool) error
+	GetUserContext(name string) (User, error)
+}
+
+type client struct {
+	chains      map[string]Chain
 	cryptoSuite bccsp.BCCSP
 	stateStore  kvs.KeyValueStore
-	userContext *User
+	userContext User
 }
 
 // NewClient ...
 /*
  * Returns a Client instance
  */
-func NewClient() *Client {
-	chains := make(map[string]*Chain)
-	c := &Client{chains: chains, cryptoSuite: nil, stateStore: nil, userContext: nil}
+func NewClient() Client {
+	chains := make(map[string]Chain)
+	c := &client{chains: chains, cryptoSuite: nil, stateStore: nil, userContext: nil}
 	return c
 }
 
@@ -70,7 +82,7 @@ func NewClient() *Client {
  * @returns {Chain} The uninitialized chain instance.
  * @returns {Error} if the chain by that name already exists in the application's state store
  */
-func (c *Client) NewChain(name string) (*Chain, error) {
+func (c *client) NewChain(name string) (Chain, error) {
 	if _, ok := c.chains[name]; ok {
 		return nil, fmt.Errorf("Chain %s already exists", name)
 	}
@@ -80,7 +92,6 @@ func (c *Client) NewChain(name string) (*Chain, error) {
 		return nil, err
 	}
 	return c.chains[name], nil
-
 }
 
 // GetChain ...
@@ -93,7 +104,7 @@ func (c *Client) NewChain(name string) (*Chain, error) {
  * @param {string} name The name of the chain.
  * @returns {Chain} The chain instance
  */
-func (c *Client) GetChain(name string) *Chain {
+func (c *client) GetChain(name string) Chain {
 	return c.chains[name]
 }
 
@@ -106,7 +117,7 @@ func (c *Client) GetChain(name string) *Chain {
  * @returns {Chain} The chain instance for the name or error if the target Peer(s) does not know
  * anything about the chain.
  */
-func (c *Client) QueryChainInfo(name string, peers []*Peer) (*Chain, error) {
+func (c *client) QueryChainInfo(name string, peers []Peer) (Chain, error) {
 	return nil, fmt.Errorf("Not implemented yet")
 }
 
@@ -117,7 +128,7 @@ func (c *Client) QueryChainInfo(name string, peers []*Peer) (*Chain, error) {
  * so that multiple app instances can share app state via the database (note that this doesn’t necessarily make the app stateful).
  * This API makes this pluggable so that different store implementations can be selected by the application.
  */
-func (c *Client) SetStateStore(stateStore kvs.KeyValueStore) {
+func (c *client) SetStateStore(stateStore kvs.KeyValueStore) {
 	c.stateStore = stateStore
 }
 
@@ -125,7 +136,7 @@ func (c *Client) SetStateStore(stateStore kvs.KeyValueStore) {
 /*
  * A convenience method for obtaining the state store object in use for this client.
  */
-func (c *Client) GetStateStore() kvs.KeyValueStore {
+func (c *client) GetStateStore() kvs.KeyValueStore {
 	return c.stateStore
 }
 
@@ -133,7 +144,7 @@ func (c *Client) GetStateStore() kvs.KeyValueStore {
 /*
  * A convenience method for obtaining the state store object in use for this client.
  */
-func (c *Client) SetCryptoSuite(cryptoSuite bccsp.BCCSP) {
+func (c *client) SetCryptoSuite(cryptoSuite bccsp.BCCSP) {
 	c.cryptoSuite = cryptoSuite
 }
 
@@ -141,7 +152,7 @@ func (c *Client) SetCryptoSuite(cryptoSuite bccsp.BCCSP) {
 /*
  * A convenience method for obtaining the CryptoSuite object in use for this client.
  */
-func (c *Client) GetCryptoSuite() bccsp.BCCSP {
+func (c *client) GetCryptoSuite() bccsp.BCCSP {
 	return c.cryptoSuite
 }
 
@@ -153,7 +164,7 @@ func (c *Client) GetCryptoSuite() bccsp.BCCSP {
  * this cache will not be established and the application is responsible for setting the user context again when the application
  * crashed and is recovered.
  */
-func (c *Client) SetUserContext(user *User, skipPersistence bool) error {
+func (c *client) SetUserContext(user User, skipPersistence bool) error {
 	if user == nil {
 		return fmt.Errorf("user is nil")
 	}
@@ -188,7 +199,7 @@ func (c *Client) SetUserContext(user *User, skipPersistence bool) error {
  * The loaded user object must represent an enrolled user with a valid enrollment certificate signed by a trusted CA
  * (such as the COP server).
  */
-func (c *Client) GetUserContext(name string) (*User, error) {
+func (c *client) GetUserContext(name string) (User, error) {
 	if c.userContext != nil {
 		return c.userContext, nil
 	}

@@ -32,7 +32,21 @@ import (
 var logger = logging.MustGetLogger("fabric_sdk_go")
 
 // EventHub ...
-type EventHub struct {
+type EventHub interface {
+	SetPeerAddr(peerURL string)
+	IsConnected() bool
+	Connect() error
+	SetInterestedEvents(events []*pb.Interest)
+	GetInterestedEvents() ([]*pb.Interest, error)
+	Recv(msg *pb.Event) (bool, error)
+	Disconnected(err error)
+	RegisterChaincodeEvent(ccid string, eventname string, callback func(*pb.ChaincodeEvent)) *ChainCodeCBE
+	UnregisterChaincodeEvent(cbe *ChainCodeCBE)
+	RegisterTxEvent(txID string, callback func(string, error))
+	UnregisterTxEvent(txID string)
+}
+
+type eventHub struct {
 	// Map of clients registered for chaincode events
 	chaincodeRegistrants map[string][]*ChainCodeCBE
 	// Map of clients registered for block events
@@ -42,7 +56,7 @@ type EventHub struct {
 	// peer addr to connect to
 	peerAddr string
 	// grpc event client interface
-	client *consumer.EventsClient
+	client consumer.EventsClient
 	// fabric connection state of this eventhub
 	connected bool
 	// List of events client is interested in
@@ -64,7 +78,7 @@ type ChainCodeCBE struct {
 }
 
 // NewEventHub ...
-func NewEventHub() *EventHub {
+func NewEventHub() EventHub {
 	chaincodeRegistrants := make(map[string][]*ChainCodeCBE)
 	blockRegistrants := make([]func(*common.Block, string, string), 0)
 	txRegistrants := make(map[string]func(string, error))
@@ -72,7 +86,7 @@ func NewEventHub() *EventHub {
 	// default interested events
 	interestedEvents := []*pb.Interest{{EventType: pb.EventType_BLOCK}, {EventType: pb.EventType_REJECTION}}
 
-	eventHub := &EventHub{chaincodeRegistrants: chaincodeRegistrants, blockRegistrants: blockRegistrants, txRegistrants: txRegistrants, interestedEvents: interestedEvents}
+	eventHub := &eventHub{chaincodeRegistrants: chaincodeRegistrants, blockRegistrants: blockRegistrants, txRegistrants: txRegistrants, interestedEvents: interestedEvents}
 
 	return eventHub
 }
@@ -85,7 +99,7 @@ func NewEventHub() *EventHub {
  * use (see eventHubConnect, eventHubDisconnect and getEventHub).
  * @param {string} peeraddr peer url
  */
-func (eventHub *EventHub) SetPeerAddr(peerURL string) {
+func (eventHub *eventHub) SetPeerAddr(peerURL string) {
 	eventHub.peerAddr = peerURL
 }
 
@@ -94,7 +108,7 @@ func (eventHub *EventHub) SetPeerAddr(peerURL string) {
  * Get connected state of eventhub
  * @returns true if connected to event source, false otherwise
  */
-func (eventHub *EventHub) Isconnected() bool {
+func (eventHub *eventHub) IsConnected() bool {
 	return eventHub.connected
 }
 
@@ -102,7 +116,7 @@ func (eventHub *EventHub) Isconnected() bool {
 /**
  * Establishes connection with peer event source<p>
  */
-func (eventHub *EventHub) Connect() error {
+func (eventHub *eventHub) Connect() error {
 	if eventHub.peerAddr == "" {
 		return fmt.Errorf("eventHub.peerAddr is empty")
 	}
@@ -121,17 +135,17 @@ func (eventHub *EventHub) Connect() error {
 }
 
 //SetInterestedEvents set events that client is interested in
-func (eventHub *EventHub) SetInterestedEvents(events []*pb.Interest) {
+func (eventHub *eventHub) SetInterestedEvents(events []*pb.Interest) {
 	eventHub.interestedEvents = events
 }
 
 //GetInterestedEvents implements consumer.EventAdapter interface for registering interested events
-func (eventHub *EventHub) GetInterestedEvents() ([]*pb.Interest, error) {
+func (eventHub *eventHub) GetInterestedEvents() ([]*pb.Interest, error) {
 	return eventHub.interestedEvents, nil
 }
 
 //Recv implements consumer.EventAdapter interface for receiving events
-func (eventHub *EventHub) Recv(msg *pb.Event) (bool, error) {
+func (eventHub *eventHub) Recv(msg *pb.Event) (bool, error) {
 	switch msg.Event.(type) {
 	case *pb.Event_Block:
 		blockEvent := msg.Event.(*pb.Event_Block)
@@ -177,7 +191,7 @@ func (eventHub *EventHub) Recv(msg *pb.Event) (bool, error) {
  * class creates a default eventHub that most Node clients can
  * use (see eventHubConnect, eventHubDisconnect and getEventHub).
  */
-func (eventHub *EventHub) Disconnected(err error) {
+func (eventHub *eventHub) Disconnected(err error) {
 	if !eventHub.connected {
 		return
 	}
@@ -197,7 +211,7 @@ func (eventHub *EventHub) Disconnected(err error) {
  * @returns {object} ChainCodeCBE object that should be treated as an opaque
  * handle used to unregister (see unregisterChaincodeEvent)
  */
-func (eventHub *EventHub) RegisterChaincodeEvent(ccid string, eventname string, callback func(*pb.ChaincodeEvent)) *ChainCodeCBE {
+func (eventHub *eventHub) RegisterChaincodeEvent(ccid string, eventname string, callback func(*pb.ChaincodeEvent)) *ChainCodeCBE {
 	if !eventHub.connected {
 		return nil
 	}
@@ -220,7 +234,7 @@ func (eventHub *EventHub) RegisterChaincodeEvent(ccid string, eventname string, 
  * @param {object} ChainCodeCBE handle returned from call to
  * registerChaincodeEvent.
  */
-func (eventHub *EventHub) UnregisterChaincodeEvent(cbe *ChainCodeCBE) {
+func (eventHub *eventHub) UnregisterChaincodeEvent(cbe *ChainCodeCBE) {
 	if !eventHub.connected {
 		return
 	}
@@ -252,7 +266,7 @@ func (eventHub *EventHub) UnregisterChaincodeEvent(cbe *ChainCodeCBE) {
  * @param {function} callback Function that takes a single parameter which
  * is a json object representation of type "message Transaction"
  */
-func (eventHub *EventHub) RegisterTxEvent(txID string, callback func(string, error)) {
+func (eventHub *eventHub) RegisterTxEvent(txID string, callback func(string, error)) {
 	logger.Debugf("reg txid %s\n", txID)
 	eventHub.txRegistrants[txID] = callback
 }
@@ -262,7 +276,7 @@ func (eventHub *EventHub) RegisterTxEvent(txID string, callback func(string, err
  * Unregister transactional event registration.
  * @param txid string transaction id
  */
-func (eventHub *EventHub) UnregisterTxEvent(txID string) {
+func (eventHub *eventHub) UnregisterTxEvent(txID string) {
 	delete(eventHub.txRegistrants, txID)
 }
 
@@ -271,7 +285,7 @@ func (eventHub *EventHub) UnregisterTxEvent(txID string) {
  * @param {object} block json object representing block of tx
  * from the fabric
  */
-func (eventHub *EventHub) txCallback(block *common.Block, txID string, errMsg string) {
+func (eventHub *eventHub) txCallback(block *common.Block, txID string, errMsg string) {
 	logger.Debugf("txCallback block=%v\n", block)
 
 	for _, v := range block.Data.Data {

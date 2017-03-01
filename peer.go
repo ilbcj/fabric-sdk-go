@@ -47,7 +47,22 @@ import (
  * It should be noted that Peer event streams function at the Peer level and not at the
  * chain and chaincode levels.
  */
-type Peer struct {
+type Peer interface {
+	ConnectEventSource()
+	IsEventListened(event string, chain Chain) (bool, error)
+	AddListener(eventType string, eventTypeData interface{}, eventCallback interface{}) (string, error)
+	RemoveListener(eventListenerRef string) (bool, error)
+	GetName() string
+	SetName(name string)
+	GetRoles() []string
+	SetRoles(roles []string)
+	GetEnrollmentCertificate() *pem.Block
+	SetEnrollmentCertificate(pem *pem.Block)
+	GetURL() string
+	SendProposal(signedProposal *pb.SignedProposal) (*pb.ProposalResponse, error)
+}
+
+type peer struct {
 	url                   string
 	grpcDialOption        []grpc.DialOption
 	name                  string
@@ -61,7 +76,7 @@ type Peer struct {
  *
  * @param {string} url The URL with format of "host:port".
  */
-func CreateNewPeer(url string) *Peer {
+func CreateNewPeer(url string) Peer {
 	var opts []grpc.DialOption
 	opts = append(opts, grpc.WithTimeout(time.Second*3))
 	if config.IsTLSEnabled() {
@@ -70,7 +85,7 @@ func CreateNewPeer(url string) *Peer {
 	} else {
 		opts = append(opts, grpc.WithInsecure())
 	}
-	return &Peer{url: url, grpcDialOption: opts, name: "", roles: nil}
+	return &peer{url: url, grpcDialOption: opts, name: "", roles: nil}
 }
 
 // ConnectEventSource ...
@@ -85,7 +100,7 @@ func CreateNewPeer(url string) *Peer {
  * types it wants to receive and the call back functions to use.
  * @returns {Future} This gives the app a handle to attach “success” and “error” listeners
  */
-func (p *Peer) ConnectEventSource() {
+func (p *peer) ConnectEventSource() {
 	//to do
 }
 
@@ -98,7 +113,7 @@ func (p *Peer) ConnectEventSource() {
  * @param {Chain} chain optional
  * @result {bool} Whether the said event has been listened on by some application instance on that chain.
  */
-func (p *Peer) IsEventListened(event string, chain *Chain) (bool, error) {
+func (p *peer) IsEventListened(event string, chain Chain) (bool, error) {
 	//to do
 	return false, nil
 }
@@ -118,7 +133,7 @@ func (p *Peer) IsEventListened(event string, chain *Chain) (bool, error) {
  * @param {struct} eventCallback Client Application class registering for the callback.
  * @returns {string} An ID reference to the event listener.
  */
-func (p *Peer) AddListener(eventType string, eventTypeData interface{}, eventCallback interface{}) (string, error) {
+func (p *peer) AddListener(eventType string, eventTypeData interface{}, eventCallback interface{}) (string, error) {
 	//to do
 	return "", nil
 }
@@ -129,7 +144,7 @@ func (p *Peer) AddListener(eventType string, eventTypeData interface{}, eventCal
  * @param {string} eventListenerRef Reference returned by SDK for event listener.
  * @return {bool} Success / Failure status
  */
-func (p *Peer) RemoveListener(eventListenerRef string) (bool, error) {
+func (p *peer) RemoveListener(eventListenerRef string) (bool, error) {
 	return false, nil
 	//to do
 }
@@ -139,7 +154,7 @@ func (p *Peer) RemoveListener(eventListenerRef string) (bool, error) {
  * Get the Peer name. Required property for the instance objects.
  * @returns {string} The name of the Peer
  */
-func (p *Peer) GetName() string {
+func (p *peer) GetName() string {
 	return p.name
 }
 
@@ -148,7 +163,7 @@ func (p *Peer) GetName() string {
  * Set the Peer name / id.
  * @param {string} name
  */
-func (p *Peer) SetName(name string) {
+func (p *peer) SetName(name string) {
 	p.name = name
 }
 
@@ -159,7 +174,7 @@ func (p *Peer) SetName(name string) {
  * for peer membership: “peer” and “validator”, which are not exposed to the applications.
  * @returns {[]string} The roles for this user.
  */
-func (p *Peer) GetRoles() []string {
+func (p *peer) GetRoles() []string {
 	return p.roles
 }
 
@@ -168,7 +183,7 @@ func (p *Peer) GetRoles() []string {
  * Set the user’s roles the Peer participates in. See getRoles() for legitimate values.
  * @param {[]string} roles The list of roles for the user.
  */
-func (p *Peer) SetRoles(roles []string) {
+func (p *peer) SetRoles(roles []string) {
 	p.roles = roles
 }
 
@@ -177,7 +192,7 @@ func (p *Peer) SetRoles(roles []string) {
  * Returns the Peer's enrollment certificate.
  * @returns {pem.Block} Certificate in PEM format signed by the trusted CA
  */
-func (p *Peer) GetEnrollmentCertificate() *pem.Block {
+func (p *peer) GetEnrollmentCertificate() *pem.Block {
 	return p.enrollmentCertificate
 }
 
@@ -186,7 +201,7 @@ func (p *Peer) GetEnrollmentCertificate() *pem.Block {
  * Set the Peer’s enrollment certificate.
  * @param {pem.Block} enrollment Certificate in PEM format signed by the trusted CA
  */
-func (p *Peer) SetEnrollmentCertificate(pem *pem.Block) {
+func (p *peer) SetEnrollmentCertificate(pem *pem.Block) {
 	p.enrollmentCertificate = pem
 }
 
@@ -195,7 +210,7 @@ func (p *Peer) SetEnrollmentCertificate(pem *pem.Block) {
  * Get the Peer url. Required property for the instance objects.
  * @returns {string} The address of the Peer
  */
-func (p *Peer) GetURL() string {
+func (p *peer) GetURL() string {
 	return p.url
 }
 
@@ -203,7 +218,7 @@ func (p *Peer) GetURL() string {
 /**
  * Send  the created proposal to peer for endorsement.
  */
-func (p *Peer) SendProposal(signedProposal *pb.SignedProposal) (*pb.ProposalResponse, error) {
+func (p *peer) SendProposal(signedProposal *pb.SignedProposal) (*pb.ProposalResponse, error) {
 	conn, err := grpc.Dial(p.url, p.grpcDialOption...)
 	if err != nil {
 		return nil, err

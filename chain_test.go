@@ -29,7 +29,7 @@ import (
 	"github.com/golang/protobuf/proto"
 	mocks "github.com/hyperledger/fabric-sdk-go/mocks"
 	cb "github.com/hyperledger/fabric/protos/common"
-	"github.com/hyperledger/fabric/protos/orderer"
+	protoOrderer "github.com/hyperledger/fabric/protos/orderer"
 	pb "github.com/hyperledger/fabric/protos/peer"
 	"github.com/spf13/viper"
 )
@@ -41,27 +41,27 @@ var testAddress = "0.0.0.0:19875"
 
 type MockBroadcastServer struct {
 	test *testing.T
-	srv  orderer.AtomicBroadcast_DeliverServer
+	srv  protoOrderer.AtomicBroadcast_DeliverServer
 }
 
-func (m *MockBroadcastServer) Broadcast(server orderer.AtomicBroadcast_BroadcastServer) error {
+func (m *MockBroadcastServer) Broadcast(server protoOrderer.AtomicBroadcast_BroadcastServer) error {
 	req, err := server.Recv()
 	if err != nil {
 		m.test.Fatalf("Error at ordering service: %s", err)
 	}
 	if string(req.Payload) != "test payload" {
-		server.Send(&orderer.BroadcastResponse{
+		server.Send(&protoOrderer.BroadcastResponse{
 			Status: cb.Status_BAD_REQUEST,
 		})
 	} else {
-		server.Send(&orderer.BroadcastResponse{
+		server.Send(&protoOrderer.BroadcastResponse{
 			Status: cb.Status_SUCCESS,
 		})
 	}
 	return nil
 }
 
-func (m *MockBroadcastServer) Deliver(server orderer.AtomicBroadcast_DeliverServer) error {
+func (m *MockBroadcastServer) Deliver(server protoOrderer.AtomicBroadcast_DeliverServer) error {
 	// Not implemented
 	return nil
 }
@@ -166,7 +166,7 @@ func startMockServer(t *testing.T) {
 	broadcastServer := &MockBroadcastServer{
 		test: t,
 	}
-	orderer.RegisterAtomicBroadcastServer(grpcServer, broadcastServer)
+	protoOrderer.RegisterAtomicBroadcastServer(grpcServer, broadcastServer)
 	if err != nil {
 		t.Fatalf("Error starting test server %s", err)
 	}
@@ -174,7 +174,7 @@ func startMockServer(t *testing.T) {
 	go grpcServer.Serve(lis)
 }
 
-func setupTestChain() (*Chain, error) {
+func setupTestChain() (Chain, error) {
 	client := NewClient()
 	user := NewUser("test")
 	cryptoSuite := &mocks.MockCryptoSuite{}

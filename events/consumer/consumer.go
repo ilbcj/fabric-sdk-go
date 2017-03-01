@@ -35,7 +35,15 @@ import (
 const defaultTimeout = time.Second * 3
 
 //EventsClient holds the stream and adapter for consumer to work with
-type EventsClient struct {
+type EventsClient interface {
+	RegisterAsync(ies []*ehpb.Interest) error
+	UnregisterAsync(ies []*ehpb.Interest) error
+	Recv() (*ehpb.Event, error)
+	Start() error
+	Stop() error
+}
+
+type eventsClient struct {
 	sync.RWMutex
 	peerAddress string
 	regTimeout  time.Duration
@@ -44,7 +52,7 @@ type EventsClient struct {
 }
 
 //NewEventsClient Returns a new grpc.ClientConn to the configured local PEER.
-func NewEventsClient(peerAddress string, regTimeout time.Duration, adapter consumer.EventAdapter) (*EventsClient, error) {
+func NewEventsClient(peerAddress string, regTimeout time.Duration, adapter consumer.EventAdapter) (EventsClient, error) {
 	var err error
 	if regTimeout < 100*time.Millisecond {
 		regTimeout = 100 * time.Millisecond
@@ -53,7 +61,7 @@ func NewEventsClient(peerAddress string, regTimeout time.Duration, adapter consu
 		regTimeout = 60 * time.Second
 		err = fmt.Errorf("regTimeout > 60, setting to 60 sec")
 	}
-	return &EventsClient{sync.RWMutex{}, peerAddress, regTimeout, nil, adapter}, err
+	return &eventsClient{sync.RWMutex{}, peerAddress, regTimeout, nil, adapter}, err
 }
 
 //newEventsClientConnectionWithAddress Returns a new grpc.ClientConn to the configured local PEER.
@@ -74,14 +82,14 @@ func newEventsClientConnectionWithAddress(peerAddress string) (*grpc.ClientConn,
 	return conn, err
 }
 
-func (ec *EventsClient) send(emsg *ehpb.Event) error {
+func (ec *eventsClient) send(emsg *ehpb.Event) error {
 	ec.Lock()
 	defer ec.Unlock()
 	return ec.stream.Send(emsg)
 }
 
 // RegisterAsync - registers interest in a event and doesn't wait for a response
-func (ec *EventsClient) RegisterAsync(ies []*ehpb.Interest) error {
+func (ec *eventsClient) RegisterAsync(ies []*ehpb.Interest) error {
 	emsg := &ehpb.Event{Event: &ehpb.Event_Register{Register: &ehpb.Register{Events: ies}}}
 	var err error
 	if err = ec.send(emsg); err != nil {
@@ -91,7 +99,7 @@ func (ec *EventsClient) RegisterAsync(ies []*ehpb.Interest) error {
 }
 
 // register - registers interest in a event
-func (ec *EventsClient) register(ies []*ehpb.Interest) error {
+func (ec *eventsClient) register(ies []*ehpb.Interest) error {
 	var err error
 	if err = ec.RegisterAsync(ies); err != nil {
 		return err
@@ -122,7 +130,7 @@ func (ec *EventsClient) register(ies []*ehpb.Interest) error {
 }
 
 // UnregisterAsync - Unregisters interest in a event and doesn't wait for a response
-func (ec *EventsClient) UnregisterAsync(ies []*ehpb.Interest) error {
+func (ec *eventsClient) UnregisterAsync(ies []*ehpb.Interest) error {
 	emsg := &ehpb.Event{Event: &ehpb.Event_Unregister{Unregister: &ehpb.Unregister{Events: ies}}}
 	var err error
 	if err = ec.send(emsg); err != nil {
@@ -133,7 +141,7 @@ func (ec *EventsClient) UnregisterAsync(ies []*ehpb.Interest) error {
 }
 
 // unregister - unregisters interest in a event
-func (ec *EventsClient) unregister(ies []*ehpb.Interest) error {
+func (ec *eventsClient) unregister(ies []*ehpb.Interest) error {
 	var err error
 	if err = ec.UnregisterAsync(ies); err != nil {
 		return err
@@ -164,7 +172,7 @@ func (ec *EventsClient) unregister(ies []*ehpb.Interest) error {
 }
 
 // Recv recieves next event - use when client has not called Start
-func (ec *EventsClient) Recv() (*ehpb.Event, error) {
+func (ec *eventsClient) Recv() (*ehpb.Event, error) {
 	in, err := ec.stream.Recv()
 	if err == io.EOF {
 		// read done.
@@ -181,7 +189,7 @@ func (ec *EventsClient) Recv() (*ehpb.Event, error) {
 	}
 	return in, nil
 }
-func (ec *EventsClient) processEvents() error {
+func (ec *eventsClient) processEvents() error {
 	defer ec.stream.CloseSend()
 	for {
 		in, err := ec.stream.Recv()
@@ -208,7 +216,7 @@ func (ec *EventsClient) processEvents() error {
 }
 
 //Start establishes connection with Event hub and registers interested events with it
-func (ec *EventsClient) Start() error {
+func (ec *eventsClient) Start() error {
 	conn, err := newEventsClientConnectionWithAddress(ec.peerAddress)
 	if err != nil {
 		return fmt.Errorf("Could not create client conn to %s", ec.peerAddress)
@@ -239,7 +247,7 @@ func (ec *EventsClient) Start() error {
 }
 
 //Stop terminates connection with event hub
-func (ec *EventsClient) Stop() error {
+func (ec *eventsClient) Stop() error {
 	if ec.stream == nil {
 		// in case the stream/chat server has not been established earlier, we assume that it's closed, successfully
 		return nil
