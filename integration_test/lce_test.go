@@ -55,13 +55,17 @@ func TestLCE(t *testing.T) {
 	// Register interest with event hub
 	eventHub := GetEventHub(t, interestedEvents)
 
+	defer eventHub.Disconnected(nil)
+
 	done := make(chan bool)
 
 	// Register callback for specific LCE
-	eventHub.RegisterChaincodeEvent(lcesccId, txId, func(ce *pb.ChaincodeEvent) {
+	lce := eventHub.RegisterChaincodeEvent(lcesccId, txId, func(ce *pb.ChaincodeEvent) {
 		fmt.Printf("Received LCE event ( %s ): \n%v\n", time.Now().Format(time.RFC850), ce)
 		done <- true
 	})
+
+	defer eventHub.UnregisterChaincodeEvent(lce)
 
 	// Generate LCE with eventId=txId
 	invokeLCEWithTxID(t, invokechain, lcesccId, txId)
