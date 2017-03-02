@@ -160,6 +160,23 @@ func TestSendInvocationTransaction(t *testing.T) {
 	}
 }
 
+func TestConcurrentPeers(t *testing.T) {
+	const numPeers = 10000
+	chain, err := setupMassiveTestChain(numPeers)
+	if err != nil {
+		t.Fatalf("Failed to create massive chain: %s", err)
+	}
+
+	result, err := chain.SendTransactionProposal(&pb.SignedProposal{}, 1)
+	if err != nil {
+		t.Fatalf("SendTransactionProposal return error: %s", err)
+	}
+
+	if len(result) != numPeers {
+		t.Error("SendTransactionProposal returned an unexpected amount of responses")
+	}
+}
+
 func startMockServer(t *testing.T) {
 	grpcServer := grpc.NewServer()
 	lis, err := net.Listen("tcp", testAddress)
@@ -181,4 +198,18 @@ func setupTestChain() (Chain, error) {
 	client.SetUserContext(user, true)
 	client.SetCryptoSuite(cryptoSuite)
 	return NewChain("testChain", client)
+}
+
+func setupMassiveTestChain(numberOfPeers int) (Chain, error) {
+	chain, error := setupTestChain()
+	if error != nil {
+		return chain, error
+	}
+
+	for i := 0; i < numberOfPeers; i++ {
+		peer := mockPeer{fmt.Sprintf("MockPeer%d", i), fmt.Sprintf("http://mock%d.peers.r.us", i), []string{}, nil}
+		chain.AddPeer(&peer)
+	}
+
+	return chain, error
 }

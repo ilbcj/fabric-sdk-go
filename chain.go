@@ -342,11 +342,14 @@ func (c *chain) SendTransactionProposal(signedProposal *pb.SignedProposal, retry
 	if signedProposal == nil {
 		return nil, fmt.Errorf("signedProposal is nil")
 	}
+
+	var responseMtx sync.Mutex
 	transactionProposalResponseMap := make(map[string]*TransactionProposalResponse)
 	var wg sync.WaitGroup
+
 	for _, p := range c.peers {
 		wg.Add(1)
-		go func(peer Peer, wg *sync.WaitGroup, tprm map[string]*TransactionProposalResponse) {
+		go func(peer Peer) {
 			defer wg.Done()
 			var err error
 			var proposalResponse *pb.ProposalResponse
@@ -363,8 +366,11 @@ func (c *chain) SendTransactionProposal(signedProposal *pb.SignedProposal, retry
 				logger.Debugf("Receive Proposal ChaincodeActionResponse :%v\n", proposalResponse)
 				transactionProposalResponse = &TransactionProposalResponse{peer.GetURL(), proposalResponse, nil}
 			}
-			tprm[transactionProposalResponse.Endorser] = transactionProposalResponse
-		}(p, &wg, transactionProposalResponseMap)
+
+			responseMtx.Lock()
+			transactionProposalResponseMap[transactionProposalResponse.Endorser] = transactionProposalResponse
+			responseMtx.Unlock()
+		}(p)
 	}
 	wg.Wait()
 	return transactionProposalResponseMap, nil
