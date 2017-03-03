@@ -1,0 +1,41 @@
+client:
+ peers:
+  peer1:
+    host: "localhost"
+    port: 7051
+    event_host: "localhost"
+    event_port: 7061
+
+  peer2:
+    host: "localhost"
+    port: 7056
+    event_host: "localhost"
+    event_port: 7061
+
+ tls:
+  enabled: false
+  certificate:
+  serverhostoverride:
+
+ security:
+  enabled: true
+  hashAlgorithm: "SHA2"
+  level: 256
+
+ tcert:
+  batch:
+    size: 200
+
+ orderer:
+  host: "localhost"
+  port: 7050
+
+ logging:
+  level: info
+
+ msp:
+  id: "DEFAULT"
+  clientPath: "./test_resources/config/client-config.json"
+
+ keystore:
+  path: "/tmp/keystore"

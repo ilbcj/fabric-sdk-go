@@ -17,7 +17,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package integration_test
+package main
 
 import (
 	"fmt"
@@ -29,15 +29,18 @@ import (
 	config "github.com/hyperledger/fabric-sdk-go/config"
 	"github.com/hyperledger/fabric/common/util"
 
+	integration "github.com/hyperledger/fabric-sdk-go/integration_test"
 	pb "github.com/hyperledger/fabric/protos/peer"
 )
+
+var chainId = "testchainid"
 
 func TestLCE(t *testing.T) {
 
 	initConfigForLCE(t)
-
+	testSetup := integration.BaseSetupImpl{}
 	// Get invoke chain
-	_, invokechain := GetChains(t)
+	_, invokechain := testSetup.GetChains(t)
 
 	// Generate transaction id
 	txId := util.GenerateUUID()
@@ -53,7 +56,7 @@ func TestLCE(t *testing.T) {
 				EventName:   txId}}}}
 
 	// Register interest with event hub
-	eventHub := GetEventHub(t, interestedEvents)
+	eventHub := testSetup.GetEventHub(t, interestedEvents)
 
 	defer eventHub.Disconnected(nil)
 
