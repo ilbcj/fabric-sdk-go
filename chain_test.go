@@ -27,11 +27,11 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/golang/protobuf/proto"
+	config "github.com/hyperledger/fabric-sdk-go/config"
 	mocks "github.com/hyperledger/fabric-sdk-go/mocks"
 	cb "github.com/hyperledger/fabric/protos/common"
 	protoOrderer "github.com/hyperledger/fabric/protos/orderer"
 	pb "github.com/hyperledger/fabric/protos/peer"
-	"github.com/spf13/viper"
 )
 
 var testPayload = &cb.Envelope{
@@ -125,7 +125,7 @@ func TestCreateInvocationTransaction(t *testing.T) {
 }
 
 func TestSendInvocationTransaction(t *testing.T) {
-	viper.Set("client.tls.enabled", false)
+	config.GetFabricClientViper().Set("client.tls.enabled", false)
 	startMockServer(t)
 	chain, err := setupTestChain()
 	if err != nil {

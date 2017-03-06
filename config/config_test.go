@@ -23,6 +23,8 @@ import (
 	"fmt"
 	"os"
 	"testing"
+
+	"github.com/spf13/viper"
 )
 
 func TestGetPeersConfig(t *testing.T) {
@@ -44,6 +46,36 @@ func TestGetPeersConfig(t *testing.T) {
 
 	}
 
+}
+
+// Test case to create a new viper instance to prevent conflict with existing
+// viper instances in applications that use the SDK
+func TestMultipleVipers(t *testing.T) {
+	viper.SetConfigFile("./test.yaml")
+	err := viper.ReadInConfig()
+	if err != nil {
+		fmt.Println(err.Error())
+	}
+	testValue1 := viper.GetString("test.testKey")
+	// Read initial value from test.yaml
+	if testValue1 != "testvalue" {
+		t.Fatalf("Expected testValue before config initialization got: %s", testValue1)
+	}
+	// initialize go sdk
+	err = InitConfig("../integration_test/test_resources/config/config_test.yaml")
+	if err != nil {
+		fmt.Println(err.Error())
+	}
+	// Make sure initial value is unaffected
+	testValue2 := viper.GetString("test.testKey")
+	if testValue2 != "testvalue" {
+		t.Fatalf("Expected testvalue after config initialization")
+	}
+	// Make sure Go SDK config is unaffected
+	testValue3 := myViper.GetString("client.peers.peer1.host")
+	if testValue3 != "localhost" {
+		t.Fatalf("Expected existing config value to remain unchanged")
+	}
 }
 
 func TestMain(m *testing.M) {

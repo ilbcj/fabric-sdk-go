@@ -39,6 +39,7 @@ type PeerConfig struct {
 	EventPort string
 }
 
+var myViper = viper.New()
 var log = logging.MustGetLogger("fabric_sdk_go")
 var format = logging.MustStringFormatter(
 	`%{color}%{time:15:04:05.000} [%{module}] %{level:.4s} : %{message}`,
@@ -49,12 +50,13 @@ var format = logging.MustStringFormatter(
 func InitConfig(configFile string) error {
 
 	if configFile != "" {
-		viper.SetConfigFile(configFile)
+		// create new viper
+		myViper.SetConfigFile(configFile)
 		// If a config file is found, read it in.
-		err := viper.ReadInConfig()
+		err := myViper.ReadInConfig()
 
 		if err == nil {
-			log.Infof("Using config file: %s", viper.ConfigFileUsed())
+			log.Infof("Using config file: %s", myViper.ConfigFileUsed())
 		} else {
 			return fmt.Errorf("Fatal error config file: %v", err)
 		}
@@ -63,7 +65,7 @@ func InitConfig(configFile string) error {
 	backend := logging.NewLogBackend(os.Stderr, "", 0)
 	backendFormatter := logging.NewBackendFormatter(backend, format)
 
-	loggingLevelString := viper.GetString("client.logging.level")
+	loggingLevelString := myViper.GetString("client.logging.level")
 	logLevel := logging.INFO
 	if loggingLevelString != "" {
 		log.Infof("fabric_sdk_go Logging level: %v", loggingLevelString)
@@ -78,10 +80,16 @@ func InitConfig(configFile string) error {
 	return nil
 }
 
+// GetFabricClientViper returns the internal viper instance used by the
+// SDK to read configuration options
+func GetFabricClientViper() *viper.Viper {
+	return myViper
+}
+
 // GetPeersConfig ...
 func GetPeersConfig() []PeerConfig {
 	peersConfig := []PeerConfig{}
-	peers := viper.GetStringMap("client.peers")
+	peers := myViper.GetStringMap("client.peers")
 	for key, value := range peers {
 		mm, ok := value.(map[string]interface{})
 		var host string
@@ -122,14 +130,14 @@ func GetPeersConfig() []PeerConfig {
 
 // IsTLSEnabled ...
 func IsTLSEnabled() bool {
-	return viper.GetBool("client.tls.enabled")
+	return myViper.GetBool("client.tls.enabled")
 }
 
 // GetTLSCACertPool ...
 func GetTLSCACertPool() *x509.CertPool {
 	certPool := x509.NewCertPool()
-	if viper.GetString("client.tls.certificate") != "" {
-		rawData, err := ioutil.ReadFile(viper.GetString("tls.certificate"))
+	if myViper.GetString("client.tls.certificate") != "" {
+		rawData, err := ioutil.ReadFile(myViper.GetString("tls.certificate"))
 		if err != nil {
 			panic(err)
 		}
@@ -140,53 +148,53 @@ func GetTLSCACertPool() *x509.CertPool {
 
 // GetTLSServerHostOverride ...
 func GetTLSServerHostOverride() string {
-	return viper.GetString("client.tls.serverhostoverride")
+	return myViper.GetString("client.tls.serverhostoverride")
 }
 
 // IsSecurityEnabled ...
 func IsSecurityEnabled() bool {
-	return viper.GetBool("client.security.enabled")
+	return myViper.GetBool("client.security.enabled")
 }
 
 // TcertBatchSize ...
 func TcertBatchSize() int {
-	return viper.GetInt("client.tcert.batch.size")
+	return myViper.GetInt("client.tcert.batch.size")
 }
 
 // GetSecurityAlgorithm ...
 func GetSecurityAlgorithm() string {
-	return viper.GetString("client.security.hashAlgorithm")
+	return myViper.GetString("client.security.hashAlgorithm")
 }
 
 // GetSecurityLevel ...
 func GetSecurityLevel() int {
-	return viper.GetInt("client.security.level")
+	return myViper.GetInt("client.security.level")
 
 }
 
 // GetOrdererHost ...
 func GetOrdererHost() string {
-	return viper.GetString("client.orderer.host")
+	return myViper.GetString("client.orderer.host")
 }
 
 // GetMspID ...
 func GetMspID() string {
-	return viper.GetString("client.msp.id")
+	return myViper.GetString("client.msp.id")
 }
 
 // GetMspClientPath ...
 func GetMspClientPath() string {
-	return viper.GetString("client.msp.clientPath")
+	return myViper.GetString("client.msp.clientPath")
 }
 
 // GetKeyStorePath ...
 func GetKeyStorePath() string {
-	return viper.GetString("client.keystore.path")
+	return myViper.GetString("client.keystore.path")
 }
 
 // GetOrdererPort ...
 func GetOrdererPort() string {
-	return strconv.Itoa(viper.GetInt("client.orderer.port"))
+	return strconv.Itoa(myViper.GetInt("client.orderer.port"))
 }
 
 // loadCAKey
