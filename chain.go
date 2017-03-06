@@ -617,18 +617,36 @@ func (c *chain) SendTransaction(proposal *pb.Proposal, tx *pb.Transaction) (map[
 }
 
 //broadcastEnvelope will send the given envelope to each orderer
-func (c *chain) broadcastEnvelope(envelope *common.
-	Envelope) (map[string]*TransactionResponse, error) {
+func (c *chain) broadcastEnvelope(envelope *common.Envelope) (map[string]*TransactionResponse, error) {
 	// Check if orderers are defined
 	if c.orderers == nil || len(c.orderers) == 0 {
 		return nil, fmt.Errorf("orderers not set")
 	}
 
+	var responseMtx sync.Mutex
 	transactionResponseMap := make(map[string]*TransactionResponse)
 	var wg sync.WaitGroup
+
 	for _, o := range c.orderers {
 		wg.Add(1)
-		go collectBroadcastResponses(o, &wg, transactionResponseMap, envelope)
+		go func(orderer Orderer) {
+			defer wg.Done()
+			var transactionResponse *TransactionResponse
+
+			logger.Debugf("Broadcasting envelope to orderer :%s\n", orderer.GetURL())
+			if err := orderer.SendBroadcast(envelope); err != nil {
+				logger.Debugf("Receive Error Response from orderer :%v\n", err)
+				transactionResponse = &TransactionResponse{orderer.GetURL(),
+					fmt.Errorf("Error calling orderer '%s':  %s", orderer.GetURL(), err)}
+			} else {
+				logger.Debugf("Receive Success Response from orderer\n")
+				transactionResponse = &TransactionResponse{orderer.GetURL(), nil}
+			}
+
+			responseMtx.Lock()
+			transactionResponseMap[transactionResponse.Orderer] = transactionResponse
+			responseMtx.Unlock()
+		}(o)
 	}
 	wg.Wait()
 
@@ -650,27 +668,6 @@ func (c *chain) signObjectWithKey(object []byte, key bccsp.Key,
 	}
 
 	return signature, nil
-}
-
-// collectBroadcastResponses will make the broadcast RPC call and place the
-// response in the given <URL string, response> map. It will add a nil
-// if an error is encountered
-func collectBroadcastResponses(orderer Orderer, wg *sync.WaitGroup,
-	trm map[string]*TransactionResponse, envelope *common.Envelope) {
-	defer wg.Done()
-	var err error
-	var transactionResponse *TransactionResponse
-
-	logger.Debugf("Broadcasting envelope to orderer :%s\n", orderer.GetURL())
-	if err = orderer.SendBroadcast(envelope); err != nil {
-		logger.Debugf("Receive Error Response from orderer :%v\n", err)
-		transactionResponse = &TransactionResponse{orderer.GetURL(),
-			fmt.Errorf("Error calling orderer '%s':  %s", orderer.GetURL(), err)}
-	} else {
-		logger.Debugf("Receive Success Response from orderer\n")
-		transactionResponse = &TransactionResponse{orderer.GetURL(), nil}
-	}
-	trm[transactionResponse.Orderer] = transactionResponse
 }
 
 func getSerializedIdentity(userCertificate []byte) ([]byte, error) {
