@@ -28,6 +28,7 @@ import (
 
 	"github.com/golang/protobuf/proto"
 	mocks "github.com/hyperledger/fabric-sdk-go/mocks"
+	"github.com/hyperledger/fabric/protos/common"
 	cb "github.com/hyperledger/fabric/protos/common"
 	protoOrderer "github.com/hyperledger/fabric/protos/orderer"
 	pb "github.com/hyperledger/fabric/protos/peer"
@@ -162,7 +163,7 @@ func TestSendInvocationTransaction(t *testing.T) {
 
 func TestConcurrentPeers(t *testing.T) {
 	const numPeers = 10000
-	chain, err := setupMassiveTestChain(numPeers)
+	chain, err := setupMassiveTestChain(numPeers, 0)
 	if err != nil {
 		t.Fatalf("Failed to create massive chain: %s", err)
 	}
@@ -174,6 +175,20 @@ func TestConcurrentPeers(t *testing.T) {
 
 	if len(result) != numPeers {
 		t.Error("SendTransactionProposal returned an unexpected amount of responses")
+	}
+}
+
+func TestConcurrentOrderers(t *testing.T) {
+	const numOrderers = 10000
+	chain, err := setupMassiveTestChain(0, numOrderers)
+	if err != nil {
+		t.Fatalf("Failed to create massive chain: %s", err)
+	}
+
+	envelope := common.Envelope{}
+	err = chain.SendInvocationTransaction(&envelope)
+	if err != nil {
+		t.Fatalf("SendInvocationTransaction returned error: %s", err)
 	}
 }
 
@@ -200,7 +215,7 @@ func setupTestChain() (Chain, error) {
 	return NewChain("testChain", client)
 }
 
-func setupMassiveTestChain(numberOfPeers int) (Chain, error) {
+func setupMassiveTestChain(numberOfPeers int, numberOfOrderers int) (Chain, error) {
 	chain, error := setupTestChain()
 	if error != nil {
 		return chain, error
@@ -209,6 +224,11 @@ func setupMassiveTestChain(numberOfPeers int) (Chain, error) {
 	for i := 0; i < numberOfPeers; i++ {
 		peer := mockPeer{fmt.Sprintf("MockPeer%d", i), fmt.Sprintf("http://mock%d.peers.r.us", i), []string{}, nil}
 		chain.AddPeer(&peer)
+	}
+
+	for i := 0; i < numberOfOrderers; i++ {
+		orderer := mockOrderer{fmt.Sprintf("http://mock%d.orderers.r.us", i), nil}
+		chain.AddOrderer(&orderer)
 	}
 
 	return chain, error
