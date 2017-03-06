@@ -21,6 +21,7 @@ package events
 
 import (
 	"fmt"
+	"sync"
 
 	consumer "github.com/hyperledger/fabric-sdk-go/events/consumer"
 	common "github.com/hyperledger/fabric/protos/common"
@@ -47,6 +48,8 @@ type EventHub interface {
 }
 
 type eventHub struct {
+	// Protects chaincodeRegistrants, blockRegistrants and txRegistrants
+	mtx sync.RWMutex
 	// Map of clients registered for chaincode events
 	chaincodeRegistrants map[string][]*ChainCodeCBE
 	// Map of clients registered for block events
@@ -120,6 +123,10 @@ func (eventHub *eventHub) Connect() error {
 	if eventHub.peerAddr == "" {
 		return fmt.Errorf("eventHub.peerAddr is empty")
 	}
+
+	eventHub.mtx.Lock()
+	defer eventHub.mtx.Unlock()
+
 	eventHub.blockRegistrants = make([]func(*common.Block, string, string), 0)
 	eventHub.blockRegistrants = append(eventHub.blockRegistrants, eventHub.txCallback)
 
@@ -146,6 +153,9 @@ func (eventHub *eventHub) GetInterestedEvents() ([]*pb.Interest, error) {
 
 //Recv implements consumer.EventAdapter interface for receiving events
 func (eventHub *eventHub) Recv(msg *pb.Event) (bool, error) {
+	eventHub.mtx.RLock()
+	defer eventHub.mtx.RUnlock()
+
 	switch msg.Event.(type) {
 	case *pb.Event_Block:
 		blockEvent := msg.Event.(*pb.Event_Block)
@@ -215,6 +225,10 @@ func (eventHub *eventHub) RegisterChaincodeEvent(ccid string, eventname string, 
 	if !eventHub.connected {
 		return nil
 	}
+
+	eventHub.mtx.Lock()
+	defer eventHub.mtx.Unlock()
+
 	cbe := ChainCodeCBE{CCID: ccid, EventNameFilter: eventname, CallbackFunc: callback}
 	cbeArray := eventHub.chaincodeRegistrants[ccid]
 	if cbeArray == nil && len(cbeArray) <= 0 {
@@ -238,6 +252,10 @@ func (eventHub *eventHub) UnregisterChaincodeEvent(cbe *ChainCodeCBE) {
 	if !eventHub.connected {
 		return
 	}
+
+	eventHub.mtx.Lock()
+	defer eventHub.mtx.Unlock()
+
 	cbeArray := eventHub.chaincodeRegistrants[cbe.CCID]
 	if len(cbeArray) <= 0 {
 		logger.Debugf("No event registration for ccid %s \n", cbe.CCID)
@@ -268,7 +286,10 @@ func (eventHub *eventHub) UnregisterChaincodeEvent(cbe *ChainCodeCBE) {
  */
 func (eventHub *eventHub) RegisterTxEvent(txID string, callback func(string, error)) {
 	logger.Debugf("reg txid %s\n", txID)
+
+	eventHub.mtx.Lock()
 	eventHub.txRegistrants[txID] = callback
+	eventHub.mtx.Unlock()
 }
 
 // UnregisterTxEvent ...
@@ -277,7 +298,9 @@ func (eventHub *eventHub) RegisterTxEvent(txID string, callback func(string, err
  * @param txid string transaction id
  */
 func (eventHub *eventHub) UnregisterTxEvent(txID string) {
+	eventHub.mtx.Lock()
 	delete(eventHub.txRegistrants, txID)
+	eventHub.mtx.Unlock()
 }
 
 /**
@@ -287,6 +310,9 @@ func (eventHub *eventHub) UnregisterTxEvent(txID string) {
  */
 func (eventHub *eventHub) txCallback(block *common.Block, txID string, errMsg string) {
 	logger.Debugf("txCallback block=%v\n", block)
+
+	eventHub.mtx.RLock()
+	defer eventHub.mtx.RUnlock()
 
 	for _, v := range block.Data.Data {
 		if env, err := utils.GetEnvelopeFromBlock(v); err != nil {
