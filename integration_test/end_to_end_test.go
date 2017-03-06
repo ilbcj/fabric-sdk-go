@@ -17,10 +17,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package integration_test
+package integration
 
 import (
-	"encoding/pem"
 	"fmt"
 	"strconv"
 	"testing"
@@ -30,13 +29,8 @@ import (
 	events "github.com/hyperledger/fabric-sdk-go/events"
 
 	config "github.com/hyperledger/fabric-sdk-go/config"
-	kvs "github.com/hyperledger/fabric-sdk-go/keyvaluestore"
-	msp "github.com/hyperledger/fabric-sdk-go/msp"
-	"github.com/hyperledger/fabric/bccsp"
-	bccspFactory "github.com/hyperledger/fabric/bccsp/factory"
 	"github.com/hyperledger/fabric/common/util"
 
-	"github.com/hyperledger/fabric/bccsp/sw"
 	pb "github.com/hyperledger/fabric/protos/peer"
 )
 
@@ -45,9 +39,10 @@ var chainId = "testchainid"
 
 func TestChainCodeInvoke(t *testing.T) {
 	InitConfigForEndToEnd()
+	testSetup := BaseSetupImpl{}
 
-	eventHub := GetEventHub(t, nil)
-	querychain, invokechain := GetChains(t)
+	eventHub := testSetup.GetEventHub(t, nil)
+	querychain, invokechain := testSetup.GetChains(t)
 
 	// Get Query value before invoke
 	value, err := getQueryValue(t, querychain)
@@ -169,103 +164,4 @@ func InitConfigForEndToEnd() {
 	if err != nil {
 		fmt.Println(err.Error())
 	}
-}
-
-func GetChains(t *testing.T) (fabric_sdk.Chain, fabric_sdk.Chain) {
-
-	client := fabric_sdk.NewClient()
-	ks := &sw.FileBasedKeyStore{}
-	if err := ks.Init(nil, config.GetKeyStorePath(), false); err != nil {
-		t.Fatalf("Failed initializing key store [%s]", err)
-	}
-
-	cryptoSuite, err := bccspFactory.GetBCCSP(&bccspFactory.SwOpts{Ephemeral_: true, SecLevel: config.GetSecurityLevel(),
-		HashFamily: config.GetSecurityAlgorithm(), KeyStore: ks})
-	if err != nil {
-		t.Fatalf("Failed getting ephemeral software-based BCCSP [%s]", err)
-	}
-	client.SetCryptoSuite(cryptoSuite)
-	stateStore, err := kvs.CreateNewFileKeyValueStore("/tmp/enroll_user")
-	if err != nil {
-		t.Fatalf("CreateNewFileKeyValueStore return error[%s]", err)
-	}
-	client.SetStateStore(stateStore)
-	user, err := client.GetUserContext("testUser")
-	if err != nil {
-		t.Fatalf("client.GetUserContext return error: %v", err)
-	}
-	if user == nil {
-		msps, err1 := msp.NewMSPServices(config.GetMspClientPath())
-		if err1 != nil {
-			t.Fatalf("NewFabricCOPServices return error: %v", err)
-		}
-		key, cert, err1 := msps.Enroll("testUser", "user1")
-		keyPem, _ := pem.Decode(key)
-		if err1 != nil {
-			t.Fatalf("Enroll return error: %v", err)
-		}
-		user := fabric_sdk.NewUser("testUser")
-		k, err1 := client.GetCryptoSuite().KeyImport(keyPem.Bytes, &bccsp.ECDSAPrivateKeyImportOpts{Temporary: false})
-		if err1 != nil {
-			t.Fatalf("KeyImport return error: %v", err)
-		}
-		user.SetPrivateKey(k)
-		user.SetEnrollmentCertificate(cert)
-		err = client.SetUserContext(user, false)
-		if err != nil {
-			t.Fatalf("client.SetUserContext return error: %v", err)
-		}
-	}
-
-	querychain, err := client.NewChain("querychain")
-	if err != nil {
-		t.Fatalf("NewChain return error: %v", err)
-	}
-
-	for _, p := range config.GetPeersConfig() {
-		endorser := fabric_sdk.CreateNewPeer(fmt.Sprintf("%s:%s", p.Host, p.Port))
-		querychain.AddPeer(endorser)
-		break
-	}
-
-	invokechain, err := client.NewChain("invokechain")
-	if err != nil {
-		t.Fatalf("NewChain return error: %v", err)
-	}
-	orderer := fabric_sdk.CreateNewOrderer(fmt.Sprintf("%s:%s", config.GetOrdererHost(), config.GetOrdererPort()))
-	invokechain.AddOrderer(orderer)
-
-	for _, p := range config.GetPeersConfig() {
-		endorser := fabric_sdk.CreateNewPeer(fmt.Sprintf("%s:%s", p.Host, p.Port))
-		invokechain.AddPeer(endorser)
-	}
-
-	return querychain, invokechain
-
-}
-
-func GetEventHub(t *testing.T, interestedEvents []*pb.Interest) events.EventHub {
-	eventHub := events.NewEventHub()
-	foundEventHub := false
-	for _, p := range config.GetPeersConfig() {
-		if p.EventHost != "" && p.EventPort != "" {
-			eventHub.SetPeerAddr(fmt.Sprintf("%s:%s", p.EventHost, p.EventPort))
-			foundEventHub = true
-			break
-		}
-	}
-
-	if !foundEventHub {
-		t.Fatalf("No EventHub configuration found")
-	}
-
-	if interestedEvents != nil {
-		eventHub.SetInterestedEvents(interestedEvents)
-	}
-
-	if err := eventHub.Connect(); err != nil {
-		t.Fatalf("Failed eventHub.Connect() [%s]", err)
-	}
-
-	return eventHub
 }

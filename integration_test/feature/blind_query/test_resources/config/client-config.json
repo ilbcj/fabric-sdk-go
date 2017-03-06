@@ -1,0 +1,6 @@
+{
+"serverURL":"http://localhost:7054",
+"certfiles":["../test_resources/root.pem"],
+"client":{"keyfile":"./test_resources/tls_client-key.pem",
+    "certfile":"./test_resources/tls_client-cert.pem"}
+}

@@ -1,0 +1,96 @@
+version: '2.0'
+
+services:
+
+  orderer:
+    image: hyperledger/fabric-orderer
+    environment:
+      - ORDERER_GENERAL_LEDGERTYPE=ram
+      - ORDERER_GENERAL_LOGLEVEL=debug
+      - ORDERER_GENERAL_BATCHTIMEOUT=10s
+      - ORDERER_GENESIS_BATCHSIZE_MAXMESSAGECOUNT=1
+      - ORDERER_GENERAL_MAXWINDOWSIZE=1000
+      - ORDERER_GENERAL_LISTENADDRESS=0.0.0.0
+      - ORDERER_RAMLEDGER_HISTORY_SIZE=100
+      - ORDERER_GENERAL_ORDERERTYPE=solo
+    working_dir: /opt/gopath/src/github.com/hyperledger/fabric/orderer
+    command: orderer
+    ports:
+      - 7050:7050
+
+  vp0:
+    image: hyperledger/fabric-peer
+    environment:
+      - CORE_PEER_ADDRESSAUTODETECT=true
+      - CORE_VM_ENDPOINT=unix:///host/var/run/docker.sock
+      - CORE_LOGGING_LEVEL=DEBUG
+      - CORE_PEER_NETWORKID=${CORE_PEER_NETWORKID}
+      - CORE_NEXT=true
+      - CORE_PEER_ENDORSER_ENABLED=true
+      - CORE_PEER_ID=vp0
+      - CORE_PEER_PROFILE_ENABLED=true
+      - CORE_PEER_COMMITTER_LEDGER_ORDERER=orderer:7050
+      - CORE_CHAINCODE_SYSTEM_CONFIG_HOMECHANNEL=channel1
+    volumes:
+        - /var/run/:/host/var/run/
+    command: peer node start
+    links:
+      - orderer
+      - vp2
+    ports:
+      - 7051:7051
+      - 7053:7053
+    depends_on:
+      - orderer
+
+  vp1:
+    image: hyperledger/fabric-peer
+    environment:
+      - CORE_PEER_ADDRESSAUTODETECT=true
+      - CORE_VM_ENDPOINT=unix:///host/var/run/docker.sock
+      - CORE_LOGGING_LEVEL=DEBUG
+      - CORE_PEER_NETWORKID=${CORE_PEER_NETWORKID}
+      - CORE_NEXT=true
+      - CORE_PEER_ENDORSER_ENABLED=true
+      - CORE_PEER_ID=vp1
+      - CORE_PEER_PROFILE_ENABLED=true
+      - CORE_PEER_COMMITTER_LEDGER_ORDERER=orderer:7050
+      - CORE_PEER_DISCOVERY_ROOTNODE=vp0:7051
+      - CORE_CHAINCODE_SYSTEM_CONFIG_HOMECHANNEL=channel2
+    volumes:
+      - /var/run/:/host/var/run/
+    command: peer node start
+    links:
+      - orderer
+      - vp0
+      - vp2
+    ports:
+      - 7056:7051
+      - 7057:7053
+    depends_on:
+      - orderer
+
+  vp2:
+    image: hyperledger/fabric-peer
+    environment:
+      - CORE_PEER_ADDRESSAUTODETECT=true
+      - CORE_VM_ENDPOINT=unix:///host/var/run/docker.sock
+      - CORE_LOGGING_LEVEL=DEBUG
+      - CORE_PEER_NETWORKID=${CORE_PEER_NETWORKID}
+      - CORE_NEXT=true
+      - CORE_PEER_ENDORSER_ENABLED=true
+      - CORE_PEER_ID=vp2
+      - CORE_PEER_PROFILE_ENABLED=true
+      - CORE_PEER_COMMITTER_LEDGER_ORDERER=orderer:7050
+      - CORE_PEER_DISCOVERY_ROOTNODE=vp0:7051
+      - CORE_PEER_ADDRESS=0.0.0.0:7051
+    volumes:
+      - /var/run/:/host/var/run/
+    command: peer node start --peer-defaultchain=false
+    links:
+      - orderer
+    ports:
+      - 7059:7051
+      - 7061:7053
+    depends_on:
+      - orderer
