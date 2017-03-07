@@ -45,7 +45,7 @@ func TestBlindQuery(t *testing.T) {
 	interestedEvents := []*pb.Interest{{EventType: pb.EventType_CHAINCODE,
 		RegInfo: &pb.Interest_ChaincodeRegInfo{
 			ChaincodeRegInfo: &pb.ChaincodeReg{
-				ChaincodeID: lcesccID,
+				ChaincodeId: lcesccID,
 				EventName:   eventID}}}}
 
 	// Register interest with event hub
@@ -64,8 +64,8 @@ func TestBlindQuery(t *testing.T) {
 	// Create and send invocation transaction
 	_, invokeChain := testSetup.GetChains(t)
 	// Invoke channelresolver cc on the global channel testchainid and request asset
-	invokeTxn, err := invokeChain.CreateInvocationTransaction("channelresolver",
-		"testchainid", []string{"invoke", "12345", eventID}, util.GenerateUUID(), nil)
+	invokeTxn, _, err := invokeChain.CreateInvocationTransaction("channelresolver",
+		"testchainid", []string{"invoke", "12345", eventID}, nil)
 	if err != nil {
 		fmt.Printf("Error creating invocation transaction: %s", err)
 		t.FailNow()

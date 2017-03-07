@@ -18,13 +18,8 @@ package util
 
 import (
 	"bytes"
-	"crypto"
 	"crypto/ecdsa"
-	"crypto/rand"
-	"crypto/rsa"
-	"crypto/sha512"
 	"crypto/x509"
-	"encoding/asn1"
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
@@ -34,6 +29,7 @@ import (
 	"math/big"
 	mrand "math/rand"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -41,7 +37,9 @@ import (
 	"time"
 
 	"github.com/cloudflare/cfssl/log"
+	"github.com/hyperledger/fabric/bccsp"
 	"github.com/jmoiron/sqlx"
+	"github.com/spf13/viper"
 )
 
 var (
@@ -154,7 +152,8 @@ func DERCertToPEM(der []byte) []byte {
 // @param cert The pem-encoded certificate
 // @param key The pem-encoded key
 // @param body The body of an HTTP request
-func CreateToken(cert []byte, key []byte, body []byte) (string, error) {
+func CreateToken(csp bccsp.BCCSP, cert []byte, key []byte, body []byte) (string, error) {
+
 	block, _ := pem.Decode(cert)
 	if block == nil {
 		return "", errors.New("Failed to PEM decode certificate")
@@ -167,14 +166,17 @@ func CreateToken(cert []byte, key []byte, body []byte) (string, error) {
 
 	var token string
 
+	//The RSA Key Gen is commented right now as there is bccsp does
 	switch publicKey.(type) {
-	case *rsa.PublicKey:
-		token, err = GenRSAToken(cert, key, body)
-		if err != nil {
-			return "", err
-		}
+	/*
+		case *rsa.PublicKey:
+			token, err = GenRSAToken(csp, cert, key, body)
+			if err != nil {
+				return "", err
+			}
+	*/
 	case *ecdsa.PublicKey:
-		token, err = GenECDSAToken(cert, key, body)
+		token, err = GenECDSAToken(csp, cert, key, body)
 		if err != nil {
 			return "", err
 		}
@@ -183,7 +185,9 @@ func CreateToken(cert []byte, key []byte, body []byte) (string, error) {
 }
 
 //GenRSAToken signs the http body and cert with RSA using RSA private key
-func GenRSAToken(cert []byte, key []byte, body []byte) (string, error) {
+// @csp : BCCSP instance
+/*
+func GenRSAToken(csp bccsp.BCCSP, cert []byte, key []byte, body []byte) (string, error) {
 	privKey, err := GetRSAPrivateKey(key)
 	if err != nil {
 		return "", err
@@ -201,30 +205,36 @@ func GenRSAToken(cert []byte, key []byte, body []byte) (string, error) {
 	b64sig := B64Encode(RSAsignature)
 	token := b64cert + "." + b64sig
 
-	return token, nil
+	return  token, nil
 }
+*/
 
 //GenECDSAToken signs the http body and cert with ECDSA using EC private key
-func GenECDSAToken(cert []byte, key []byte, body []byte) (string, error) {
-	privKey, err := GetECPrivateKey(key)
+func GenECDSAToken(csp bccsp.BCCSP, cert []byte, key []byte, body []byte) (string, error) {
+
+	sk, err := GetKeyFromBytes(csp, key)
 	if err != nil {
 		return "", err
 	}
+
 	b64body := B64Encode(body)
 	b64cert := B64Encode(cert)
 	bodyAndcert := b64body + "." + b64cert
-	hash := sha512.New384()
-	hash.Write([]byte(bodyAndcert))
-	h := hash.Sum(nil)
-	r, s, err := ecdsa.Sign(rand.Reader, privKey, h)
-	if err != nil {
-		return "", fmt.Errorf("Failed in ecdsa.Sign: %s", err)
+
+	digest, digestError := csp.Hash([]byte(bodyAndcert), &bccsp.SHAOpts{})
+	if digestError != nil {
+		return "", fmt.Errorf("Hash operation on %s\t failed with error : %s", bodyAndcert, digestError)
 	}
-	ECsignature, err := asn1.Marshal(ECDSASignature{r, s})
-	if err != nil {
-		return "", fmt.Errorf("Failed in asn1.Marshal: %s", err)
+
+	ecSignature, signatureError := csp.Sign(sk, digest, nil)
+	if signatureError != nil {
+		return "", fmt.Errorf("BCCSP signature generation failed with error :%s", err)
 	}
-	b64sig := B64Encode(ECsignature)
+	if len(ecSignature) == 0 {
+		return "", errors.New("BCCSP signature creation failed. Signature must be different than nil")
+	}
+
+	b64sig := B64Encode(ecSignature)
 	token := b64cert + "." + b64sig
 
 	return token, nil
@@ -233,7 +243,11 @@ func GenECDSAToken(cert []byte, key []byte, body []byte) (string, error) {
 
 // VerifyToken verifies token signed by either ECDSA or RSA and
 // returns the associated user ID
-func VerifyToken(token string, body []byte) (*x509.Certificate, error) {
+func VerifyToken(csp bccsp.BCCSP, token string, body []byte) (*x509.Certificate, error) {
+
+	if csp == nil {
+		return nil, errors.New("BCCSP instance is not present")
+	}
 	x509Cert, b64Cert, b64Sig, err := DecodeToken(token)
 	if err != nil {
 		return nil, err
@@ -244,27 +258,30 @@ func VerifyToken(token string, body []byte) (*x509.Certificate, error) {
 	}
 	b64Body := B64Encode(body)
 	sigString := b64Body + "." + b64Cert
-	publicKey := x509Cert.PublicKey
-	hash := sha512.New384()
-	hash.Write([]byte(sigString))
-	h := hash.Sum(nil)
-	switch publicKey.(type) {
-	case *rsa.PublicKey:
-		err := rsa.VerifyPKCS1v15(publicKey.(*rsa.PublicKey), crypto.SHA384, h[:], sig)
-		if err != nil {
-			return nil, err
-		}
-	case *ecdsa.PublicKey:
-		ecdsaSignature := new(ECDSASignature)
-		_, err := asn1.Unmarshal(sig, ecdsaSignature)
-		if err != nil {
-			return nil, fmt.Errorf("Failed to unmarshal EC signature to R and S: %s", err)
-		}
-		verified := ecdsa.Verify(publicKey.(*ecdsa.PublicKey), h, ecdsaSignature.R, ecdsaSignature.S)
-		if !verified {
-			return nil, errors.New("token verification failed (ecdsa.Verify failed)")
-		}
+
+	pk2, err := csp.KeyImport(x509Cert, &bccsp.X509PublicKeyImportOpts{Temporary: true})
+	if err != nil {
+		return nil, fmt.Errorf("Public Key import into BCCSP failed with error : %s", err)
 	}
+	if pk2 == nil {
+		return nil, errors.New("Public Key Cannot be imported into BCCSP")
+	}
+	//bccsp.X509PublicKeyImportOpts
+	//Using default hash algo
+	digest, digestError := csp.Hash([]byte(sigString), &bccsp.SHAOpts{})
+	if digestError != nil {
+		return nil, fmt.Errorf("Message digest failed with error : %s", digestError)
+	}
+
+	valid, validErr := csp.Verify(pk2, sig, digest, nil)
+
+	if validErr != nil {
+		return nil, fmt.Errorf("Token Signature validation failed with error : %s ", validErr)
+	}
+	if !valid {
+		return nil, errors.New("Token Signature Validation failed")
+	}
+
 	return x509Cert, nil
 }
 
@@ -307,6 +324,9 @@ func GetECPrivateKey(raw []byte) (*ecdsa.PrivateKey, error) {
 }
 
 //GetRSAPrivateKey get *rsa.PrivateKey from key pem
+// This function is commented out as there is no
+// adequate support for RSA
+/*
 func GetRSAPrivateKey(raw []byte) (*rsa.PrivateKey, error) {
 	decoded, _ := pem.Decode(raw)
 	if decoded == nil {
@@ -318,15 +338,16 @@ func GetRSAPrivateKey(raw []byte) (*rsa.PrivateKey, error) {
 	}
 	return RSAprivKey, nil
 }
+*/
 
 // B64Encode base64 encodes bytes
 func B64Encode(buf []byte) string {
-	return base64.RawStdEncoding.EncodeToString(buf)
+	return base64.StdEncoding.EncodeToString(buf)
 }
 
 // B64Decode base64 decodes a string
 func B64Decode(str string) (buf []byte, err error) {
-	return base64.RawStdEncoding.DecodeString(str)
+	return base64.StdEncoding.DecodeString(str)
 }
 
 // GetDB returns a handle to an established driver-specific database connection
@@ -360,18 +381,10 @@ func HTTPResponseToString(resp *http.Response) string {
 		resp.StatusCode, resp.Status, string(body))
 }
 
-// CreateHome will create a home directory if it does not exist
-func CreateHome() (string, error) {
+// CreateClientHome will create a home directory if it does not exist
+func CreateClientHome() (string, error) {
 	log.Debug("CreateHome")
-	home := os.Getenv("FABRIC_CA_HOME")
-	if home == "" {
-		home = os.Getenv("HOME")
-		if home != "" {
-			home = path.Join(home, "/fabric-cop")
-		} else {
-			home = "/var/hyperledger/fabric/dev/fabric-cop"
-		}
-	}
+	home := filepath.Dir(GetDefaultConfigFile("fabric-ca-client"))
 
 	if _, err := os.Stat(home); err != nil {
 		if os.IsNotExist(err) {
@@ -384,18 +397,35 @@ func CreateHome() (string, error) {
 	return home, nil
 }
 
-// GetDefaultHomeDir returns the default fabric-cas home
-func GetDefaultHomeDir() string {
-	home := os.Getenv("FABRIC_CA_HOME")
-	if home == "" {
-		home = os.Getenv("HOME")
-		if home != "" {
-			home = path.Join(home, "/fabric-ca")
-		} else {
-			home = "/var/hyperledger/fabric/dev/fabric-ca"
+// GetDefaultConfigFile gets the default path for the config file to display in usage message
+func GetDefaultConfigFile(cmdName string) string {
+	if cmdName == "fabric-ca-server" {
+		var fname = fmt.Sprintf("%s-config.yaml", cmdName)
+		// First check home env variables
+		home := "."
+		envs := []string{"FABRIC_CA_SERVER_HOME", "FABRIC_CA_HOME", "CA_CFG_PATH"}
+		for _, env := range envs {
+			envVal := os.Getenv(env)
+			if envVal != "" {
+				home = envVal
+				break
+			}
+		}
+		return path.Join(home, fname)
+	}
+
+	var fname = fmt.Sprintf("%s-config.yaml", cmdName)
+	// First check home env variables
+	home := "."
+	envs := []string{"FABRIC_CA_CLIENT_HOME", "FABRIC_CA_HOME", "CA_CFG_PATH", "HOME"}
+	for _, env := range envs {
+		envVal := os.Getenv(env)
+		if envVal != "" {
+			home = envVal
+			break
 		}
 	}
-	return home
+	return path.Join(home, ".fabric-ca-client", fname)
 }
 
 // GetX509CertificateFromPEM converts a PEM buffer to an X509 Certificate
@@ -438,4 +468,63 @@ func MakeFileAbs(file, dir string) (string, error) {
 		return "", fmt.Errorf("Failed making '%s' absolute based on '%s'", file, dir)
 	}
 	return path, nil
+}
+
+// Fatal logs a fatal message and exits
+func Fatal(format string, v ...interface{}) {
+	log.Fatalf(format, v...)
+	os.Exit(1)
+}
+
+// GetUser returns username and password from CLI input
+func GetUser() (string, string, error) {
+	fabricCAServerURL := viper.GetString("url")
+
+	URL, err := url.Parse(fabricCAServerURL)
+	if err != nil {
+		return "", "", err
+	}
+
+	user := URL.User
+	if user == nil {
+		return "", "", errors.New("No username and password provided as part of URL")
+	}
+
+	eid := user.Username()
+	if eid == "" {
+		return "", "", errors.New("No username provided as part of URL")
+	}
+
+	pass, _ := user.Password()
+	if pass == "" {
+		return "", "", errors.New("No password provided as part of URL")
+	}
+
+	return eid, pass, nil
+}
+
+// GetKeyFromBytes returns a BCCSP key given a byte buffer.  The byte buffer
+// should always contain the SKI and not the real private key;  however,
+// until we have complete BCCSP integration, we tolerate it being the real
+// private key.
+func GetKeyFromBytes(csp bccsp.BCCSP, key []byte) (bccsp.Key, error) {
+
+	// This should succeed if key is an SKI
+	sk, err := csp.GetKey(key)
+	if err == nil {
+		return sk, nil
+	}
+
+	// Nope, try handling as a private key itself
+	pk, err := GetECPrivateKey(key)
+	if err != nil {
+		return nil, err
+	}
+
+	pkb, err := x509.MarshalECPrivateKey(pk)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to marshal EC private key: %s", err)
+	}
+
+	return csp.KeyImport(pkb, &bccsp.ECDSAPrivateKeyImportOpts{Temporary: true})
 }

@@ -29,7 +29,6 @@ import (
 	kvs "github.com/hyperledger/fabric-sdk-go/keyvaluestore"
 	"github.com/hyperledger/fabric/bccsp"
 	bccspFactory "github.com/hyperledger/fabric/bccsp/factory"
-	"github.com/hyperledger/fabric/bccsp/sw"
 
 	msp "github.com/hyperledger/fabric-sdk-go/msp"
 )
@@ -41,16 +40,24 @@ import (
 func TestEnroll(t *testing.T) {
 	InitConfigForMsp()
 	client := fabric_sdk.NewClient()
-	ks := &sw.FileBasedKeyStore{}
-	if err := ks.Init(nil, config.GetKeyStorePath(), false); err != nil {
-		t.Fatalf("Failed initializing key store [%s]", err)
-	}
 
-	cryptoSuite, err := bccspFactory.GetBCCSP(&bccspFactory.SwOpts{Ephemeral_: true, SecLevel: config.GetSecurityLevel(),
-		HashFamily: config.GetSecurityAlgorithm(), KeyStore: ks})
+	err := bccspFactory.InitFactories(&bccspFactory.FactoryOpts{
+		ProviderName: "SW",
+		SwOpts: &bccspFactory.SwOpts{
+			HashFamily: config.GetSecurityAlgorithm(),
+			SecLevel:   config.GetSecurityLevel(),
+			FileKeystore: &bccspFactory.FileKeystoreOpts{
+				KeyStorePath: config.GetKeyStorePath(),
+			},
+			Ephemeral: false,
+		},
+	})
 	if err != nil {
 		t.Fatalf("Failed getting ephemeral software-based BCCSP [%s]", err)
 	}
+
+	cryptoSuite := bccspFactory.GetDefault()
+
 	client.SetCryptoSuite(cryptoSuite)
 	stateStore, err := kvs.CreateNewFileKeyValueStore("/tmp/enroll_user")
 	if err != nil {

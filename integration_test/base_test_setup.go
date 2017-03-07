@@ -28,7 +28,6 @@ import (
 	"github.com/hyperledger/fabric-sdk-go/events"
 	"github.com/hyperledger/fabric-sdk-go/msp"
 	"github.com/hyperledger/fabric/bccsp"
-	"github.com/hyperledger/fabric/bccsp/sw"
 
 	fabric_sdk "github.com/hyperledger/fabric-sdk-go"
 	kvs "github.com/hyperledger/fabric-sdk-go/keyvaluestore"
@@ -48,19 +47,26 @@ type BaseTestSetup interface {
 type BaseSetupImpl struct {
 }
 
-//
+// GetChains initializes and returns a query chain and invoke chain
 func (setup *BaseSetupImpl) GetChains(t *testing.T) (fabric_sdk.Chain, fabric_sdk.Chain) {
 	client := fabric_sdk.NewClient()
-	ks := &sw.FileBasedKeyStore{}
-	if err := ks.Init(nil, config.GetKeyStorePath(), false); err != nil {
-		t.Fatalf("Failed initializing key store [%s]", err)
-	}
 
-	cryptoSuite, err := bccspFactory.GetBCCSP(&bccspFactory.SwOpts{Ephemeral_: true, SecLevel: config.GetSecurityLevel(),
-		HashFamily: config.GetSecurityAlgorithm(), KeyStore: ks})
+	err := bccspFactory.InitFactories(&bccspFactory.FactoryOpts{
+		ProviderName: "SW",
+		SwOpts: &bccspFactory.SwOpts{
+			HashFamily: config.GetSecurityAlgorithm(),
+			SecLevel:   config.GetSecurityLevel(),
+			FileKeystore: &bccspFactory.FileKeystoreOpts{
+				KeyStorePath: config.GetKeyStorePath(),
+			},
+			Ephemeral: false,
+		},
+	})
 	if err != nil {
 		t.Fatalf("Failed getting ephemeral software-based BCCSP [%s]", err)
 	}
+	cryptoSuite := bccspFactory.GetDefault()
+
 	client.SetCryptoSuite(cryptoSuite)
 	stateStore, err := kvs.CreateNewFileKeyValueStore("/tmp/enroll_user")
 	if err != nil {

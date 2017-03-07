@@ -23,7 +23,6 @@ import (
 	"testing"
 
 	kvs "github.com/hyperledger/fabric-sdk-go/keyvaluestore"
-	"github.com/hyperledger/fabric/bccsp/sw"
 
 	bccspFactory "github.com/hyperledger/fabric/bccsp/factory"
 )
@@ -33,16 +32,12 @@ func TestClientMethods(t *testing.T) {
 	if client.GetCryptoSuite() != nil {
 		t.Fatalf("Client getCryptoSuite should initially be nil")
 	}
-	ks := &sw.FileBasedKeyStore{}
-	if err := ks.Init(nil, "/tmp/keystoretest", false); err != nil {
-		t.Fatalf("Failed initializing key store [%s]", err)
-	}
-
-	cryptoSuite, err := bccspFactory.GetBCCSP(&bccspFactory.SwOpts{Ephemeral_: true, SecLevel: 256,
-		HashFamily: "SHA2", KeyStore: ks})
+	err := bccspFactory.InitFactories(nil)
 	if err != nil {
 		t.Fatalf("Failed getting ephemeral software-based BCCSP [%s]", err)
 	}
+	cryptoSuite := bccspFactory.GetDefault()
+
 	client.SetCryptoSuite(cryptoSuite)
 	if client.GetCryptoSuite() == nil {
 		t.Fatalf("Client getCryptoSuite should not be nil after setCryptoSuite")

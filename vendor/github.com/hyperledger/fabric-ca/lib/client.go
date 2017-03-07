@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"net"
@@ -27,6 +28,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -46,12 +48,11 @@ const (
 // NewClient is the constructor for the fabric-ca client API
 func NewClient(configFile string) (*Client, error) {
 	c := new(Client)
-	// Set defaults
+
 	if configFile != "" {
 		if _, err := os.Stat(configFile); err != nil {
 			log.Info("Fabric-ca client configuration file not found. Using Defaults...")
 		} else {
-			c.ConfigFile = configFile
 			var config []byte
 			var err error
 			config, err = ioutil.ReadFile(configFile)
@@ -66,17 +67,21 @@ func NewClient(configFile string) (*Client, error) {
 		}
 	}
 
-	if c.ServerURL == "" {
-		c.ServerURL = util.GetServerURL()
+	var cfg = new(ClientConfig)
+	c.Config = cfg
+
+	// Set defaults
+	if c.Config.URL == "" {
+		c.Config.URL = util.GetServerURL()
 	}
 
 	if c.HomeDir == "" {
-		c.HomeDir = util.GetDefaultHomeDir()
+		c.HomeDir = filepath.Dir(util.GetDefaultConfigFile("fabric-ca-client"))
 	}
 
 	if _, err := os.Stat(c.HomeDir); err != nil {
 		if os.IsNotExist(err) {
-			_, err := util.CreateHome()
+			_, err := util.CreateClientHome()
 			if err != nil {
 				return nil, err
 			}
@@ -88,12 +93,11 @@ func NewClient(configFile string) (*Client, error) {
 
 // Client is the fabric-ca client object
 type Client struct {
-	// ServerURL is the URL of the server
-	ServerURL string `json:"serverURL,omitempty"`
 	// HomeDir is the home directory
 	HomeDir string `json:"homeDir,omitempty"`
-	// ConfigFile is the location of the client configuration file
-	ConfigFile string
+
+	// The client's configuration
+	Config *ClientConfig
 }
 
 // Enroll enrolls a new identity
@@ -287,25 +291,22 @@ func (c *Client) SendPost(req *http.Request) (interface{}, error) {
 	reqStr := util.HTTPRequestToString(req)
 	log.Debugf("Sending request\n%s", reqStr)
 
-	configFile, err := c.getClientConfig(c.ConfigFile)
-	if err != nil {
-		return nil, fmt.Errorf("Failed to load client config file [%s]; not sending\n%s", err, reqStr)
-	}
+	var tr = new(http.Transport)
 
-	var cfg = new(tls.ClientTLSConfig)
+	if c.Config.TLS.Enabled {
+		log.Info("TLS Enabled")
 
-	err = json.Unmarshal(configFile, cfg)
-	if err != nil {
-		return nil, fmt.Errorf("Failed to parse client config file [%s]; not sending\n%s", err, reqStr)
-	}
+		err := tls.AbsTLSClient(&c.Config.TLS, c.HomeDir)
+		if err != nil {
+			return nil, err
+		}
 
-	tlsConfig, err := tls.GetClientTLSConfig(cfg)
-	if err != nil {
-		return nil, fmt.Errorf("Failed to get client TLS config [%s]; not sending\n%s", err, reqStr)
-	}
+		tlsConfig, err := tls.GetClientTLSConfig(&c.Config.TLS)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to get client TLS config: %s", err)
+		}
 
-	tr := &http.Transport{
-		TLSClientConfig: tlsConfig,
+		tr.TLSClientConfig = tlsConfig
 	}
 
 	httpClient := &http.Client{Transport: tr}
@@ -344,16 +345,25 @@ func (c *Client) SendPost(req *http.Request) (interface{}, error) {
 	if !body.Success {
 		return nil, fmt.Errorf("Server returned failure for request:\n%s", reqStr)
 	}
+	log.Debugf("Response body result: %+v", body.Result)
 	return body.Result, nil
 }
 
 func (c *Client) getURL(endpoint string) (string, error) {
-	nurl, err := normalizeURL(c.ServerURL)
+	nurl, err := NormalizeURL(c.Config.URL)
 	if err != nil {
 		return "", err
 	}
 	rtn := fmt.Sprintf("%s/api/v1/cfssl/%s", nurl, endpoint)
 	return rtn, nil
+}
+
+// Enrollment checks to see if client is enrolled (i.e. enrollment information exists)
+func (c *Client) Enrollment() error {
+	if !util.FileExists(c.GetMyCertFile()) || !util.FileExists(c.GetMyKeyFile()) {
+		return errors.New("Enrollment information does not exist. Please execute enroll command first. Example: fabric-ca-client enroll -u http://user:userpw@serverAddr:serverPort")
+	}
+	return nil
 }
 
 func (c *Client) getClientConfig(path string) ([]byte, error) {
@@ -366,7 +376,8 @@ func (c *Client) getClientConfig(path string) ([]byte, error) {
 	return fileBytes, nil
 }
 
-func normalizeURL(addr string) (*url.URL, error) {
+// NormalizeURL normalizes a URL (from cfssl)
+func NormalizeURL(addr string) (*url.URL, error) {
 	addr = strings.TrimSpace(addr)
 	u, err := url.Parse(addr)
 	if err != nil {

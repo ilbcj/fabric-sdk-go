@@ -29,7 +29,6 @@ import (
 	events "github.com/hyperledger/fabric-sdk-go/events"
 
 	config "github.com/hyperledger/fabric-sdk-go/config"
-	"github.com/hyperledger/fabric/common/util"
 
 	pb "github.com/hyperledger/fabric/protos/peer"
 )
@@ -80,9 +79,7 @@ func getQueryValue(t *testing.T, chain fabric_sdk.Chain) (string, error) {
 	args = append(args, "query")
 	args = append(args, "b")
 
-	txid := util.GenerateUUID()
-
-	signedProposal, _, err := chain.CreateTransactionProposal(chainCodeId, chainId, args, true, txid, nil)
+	signedProposal, _, _, err := chain.CreateTransactionProposal(chainCodeId, chainId, args, true, nil)
 	if err != nil {
 		return "", fmt.Errorf("SendTransactionProposal return error: %v", err)
 	}
@@ -109,9 +106,7 @@ func invoke(t *testing.T, chain fabric_sdk.Chain, eventHub events.EventHub) erro
 	args = append(args, "b")
 	args = append(args, "1")
 
-	txId := util.GenerateUUID()
-
-	signedProposal, proposal, err := chain.CreateTransactionProposal(chainCodeId, chainId, args, true, txId, nil)
+	signedProposal, proposal, txID, err := chain.CreateTransactionProposal(chainCodeId, chainId, args, true, nil)
 	if err != nil {
 		return fmt.Errorf("SendTransactionProposal return error: %v", err)
 	}
@@ -145,7 +140,7 @@ func invoke(t *testing.T, chain fabric_sdk.Chain, eventHub events.EventHub) erro
 		}
 	}
 	done := make(chan bool)
-	eventHub.RegisterTxEvent(txId, func(txId string, err error) {
+	eventHub.RegisterTxEvent(txID, func(txId string, err error) {
 		fmt.Printf("receive success event for txid(%s)\n", txId)
 		done <- true
 	})
@@ -153,7 +148,7 @@ func invoke(t *testing.T, chain fabric_sdk.Chain, eventHub events.EventHub) erro
 	select {
 	case <-done:
 	case <-time.After(time.Second * 20):
-		return fmt.Errorf("Didn't receive block event for txid(%s)\n", txId)
+		return fmt.Errorf("Didn't receive block event for txid(%s)\n", txID)
 	}
 	return nil
 

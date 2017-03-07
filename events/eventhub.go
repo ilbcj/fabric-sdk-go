@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/golang/protobuf/proto"
 	consumer "github.com/hyperledger/fabric-sdk-go/events/consumer"
 	common "github.com/hyperledger/fabric/protos/common"
 	pb "github.com/hyperledger/fabric/protos/peer"
@@ -168,9 +169,9 @@ func (eventHub *eventHub) Recv(msg *pb.Event) (bool, error) {
 		ccEvent := msg.Event.(*pb.Event_ChaincodeEvent)
 		logger.Debugf("Recv ccEvent:%v\n", ccEvent)
 
-		cbeArray := eventHub.chaincodeRegistrants[ccEvent.ChaincodeEvent.ChaincodeID]
+		cbeArray := eventHub.chaincodeRegistrants[ccEvent.ChaincodeEvent.ChaincodeId]
 		if len(cbeArray) <= 0 {
-			logger.Debugf("No event registration for ccid %s \n", ccEvent.ChaincodeEvent.ChaincodeID)
+			logger.Debugf("No event registration for ccid %s \n", ccEvent.ChaincodeEvent.ChaincodeId)
 		}
 
 		for _, v := range cbeArray {
@@ -324,9 +325,16 @@ func (eventHub *eventHub) txCallback(block *common.Block, txID string, errMsg st
 				return
 			}
 
-			callback := eventHub.txRegistrants[payload.Header.ChainHeader.TxID]
+			channelHeaderBytes := payload.Header.ChannelHeader
+			channelHeader := &common.ChannelHeader{}
+			err = proto.Unmarshal(channelHeaderBytes, channelHeader)
+			if err != nil {
+				return
+			}
+
+			callback := eventHub.txRegistrants[channelHeader.TxId]
 			if callback != nil {
-				callback(payload.Header.ChainHeader.TxID, nil)
+				callback(channelHeader.TxId, nil)
 			}
 		}
 

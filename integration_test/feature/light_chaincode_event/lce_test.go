@@ -52,7 +52,7 @@ func TestLCE(t *testing.T) {
 	interestedEvents := []*pb.Interest{{EventType: pb.EventType_CHAINCODE,
 		RegInfo: &pb.Interest_ChaincodeRegInfo{
 			ChaincodeRegInfo: &pb.ChaincodeReg{
-				ChaincodeID: lcesccId,
+				ChaincodeId: lcesccId,
 				EventName:   txId}}}}
 
 	// Register interest with event hub
@@ -88,7 +88,7 @@ func invokeLCEWithTxID(t *testing.T, chain fabric_sdk.Chain, lcesccId string, tx
 	args = append(args, txId)
 	args = append(args, "Test Payload")
 
-	signedProposal, _, err := chain.CreateTransactionProposal(lcesccId, chainId, args, true, txId, nil)
+	signedProposal, _, _, err := chain.CreateTransactionProposal(lcesccId, chainId, args, true, nil)
 	if err != nil {
 		t.Fatalf("SendTransactionProposal return error: %v", err)
 	}

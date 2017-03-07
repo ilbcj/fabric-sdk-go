@@ -19,8 +19,8 @@ Execute `go test` in the `integration_test` to run end-to-end tests. This requir
 ## Work in Progress
 
 This client was last tested and found to be compatible with the following Hyperledger Fabric commit levels:
-- fabric: `f7c19f88e824cbaea3c55bc218b3bbed37cc29ad`
-- fabric-ca: `1ec55b2b49e9dfbfc2e28dccec0ced659ce1f246`
+- fabric: `22d98b9e5ea36a6b209b3ea67def50a678718679`
+- fabric-ca: `f18b6b769b80c889cb6b82ce34d755d9303ec881`
 
 The following SDK features are yet to be implemented:
 - Chaincode deployment

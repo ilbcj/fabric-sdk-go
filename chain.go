@@ -64,9 +64,9 @@ type Chain interface {
 	QueryInfo()
 	QueryBlock(blockNumber int)
 	QueryTransaction(transactionID int)
-	CreateTransactionProposal(chaincodeName string, chainID string, args []string, sign bool, txid string, transientData []byte) (*pb.SignedProposal, *pb.Proposal, error)
+	CreateTransactionProposal(chaincodeName string, chainID string, args []string, sign bool, transientData map[string][]byte) (*pb.SignedProposal, *pb.Proposal, string, error)
 	SendTransactionProposal(signedProposal *pb.SignedProposal, retry int) (map[string]*TransactionProposalResponse, error)
-	CreateInvocationTransaction(chaincodeName string, chainID string, args []string, txid string, transientData []byte) (*common.Envelope, error)
+	CreateInvocationTransaction(chaincodeName string, chainID string, args []string, transientData map[string][]byte) (*common.Envelope, string, error)
 	SendInvocationTransaction(envelope *common.Envelope) error
 	CreateTransaction(proposal *pb.Proposal, resps []*pb.ProposalResponse) (*pb.Transaction, error)
 	SendTransaction(proposal *pb.Proposal, tx *pb.Transaction) (map[string]*TransactionResponse, error)
@@ -294,43 +294,45 @@ func (c *chain) QueryTransaction(transactionID int) {
  * with the data (chaincodeName, function to call, arguments, transient data, etc.) and signing it using the private key corresponding to the
  * ECert to sign.
  */
-func (c *chain) CreateTransactionProposal(chaincodeName string, chainID string, args []string, sign bool, txid string, transientData []byte) (*pb.SignedProposal, *pb.Proposal, error) {
+func (c *chain) CreateTransactionProposal(chaincodeName string, chainID string,
+	args []string, sign bool, transientData map[string][]byte) (*pb.SignedProposal,
+	*pb.Proposal, string, error) {
 
 	argsArray := make([][]byte, len(args))
 	for i, arg := range args {
 		argsArray[i] = []byte(arg)
 	}
 	ccis := &pb.ChaincodeInvocationSpec{ChaincodeSpec: &pb.ChaincodeSpec{
-		Type: pb.ChaincodeSpec_GOLANG, ChaincodeID: &pb.ChaincodeID{Name: chaincodeName},
+		Type: pb.ChaincodeSpec_GOLANG, ChaincodeId: &pb.ChaincodeID{Name: chaincodeName},
 		Input: &pb.ChaincodeInput{Args: argsArray}}}
 
 	user, err := c.clientContext.GetUserContext("")
 	if err != nil {
-		return nil, nil, fmt.Errorf("GetUserContext return error: %s", err)
+		return nil, nil, "", fmt.Errorf("GetUserContext return error: %s", err)
 	}
 
 	creatorID, err := getSerializedIdentity(user.GetEnrollmentCertificate())
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, "", err
 	}
 	// create a proposal from a ChaincodeInvocationSpec
-	proposal, err := protos_utils.CreateChaincodeProposalWithTransient(txid, common.HeaderType_ENDORSER_TRANSACTION, chainID, ccis, creatorID, transientData)
+	proposal, txID, err := protos_utils.CreateChaincodeProposalWithTransient(common.HeaderType_ENDORSER_TRANSACTION, chainID, ccis, creatorID, transientData)
 	if err != nil {
-		return nil, nil, fmt.Errorf("Could not create chaincode proposal, err %s", err)
+		return nil, nil, "", fmt.Errorf("Could not create chaincode proposal, err %s", err)
 	}
 
 	proposalBytes, err := protos_utils.GetBytesProposal(proposal)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, "", err
 	}
 
 	signature, err := c.signObjectWithKey(proposalBytes, user.GetPrivateKey(),
 		&bccsp.SHAOpts{}, nil)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, "", err
 	}
 	signedProposal := &pb.SignedProposal{ProposalBytes: proposalBytes, Signature: signature}
-	return signedProposal, proposal, nil
+	return signedProposal, proposal, txID, nil
 }
 
 // SendTransactionProposal ...
@@ -382,39 +384,52 @@ func (c *chain) SendTransactionProposal(signedProposal *pb.SignedProposal, retry
 // arguments: It takes the arguments required to create a transaction proposal
 // returns: transac envelope, error
 func (c *chain) CreateInvocationTransaction(chaincodeName string, chainID string,
-	args []string, txid string, transientData []byte) (*common.Envelope, error) {
+	args []string, transientData map[string][]byte) (*common.Envelope, string, error) {
 	// Get user info and creator id
 	user, err := c.clientContext.GetUserContext("")
 	if err != nil {
-		return nil, fmt.Errorf("GetUserContext returned error: %s", err)
+		return nil, "", fmt.Errorf("GetUserContext returned error: %s", err)
 	}
 
 	creatorID, err := getSerializedIdentity(user.GetEnrollmentCertificate())
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	// Create and marshal signed transaction proposal
-	signedProposal, _, err := c.CreateTransactionProposal(chaincodeName,
-		chainID, args, true, txid, transientData)
+	signedProposal, _, txID, err := c.CreateTransactionProposal(chaincodeName,
+		chainID, args, true, transientData)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	signedProposalBytes, err := proto.Marshal(signedProposal)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	// generate a random nonce
 	nonce, err := primitives.GetRandomNonce()
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
+
+	signatureHeader := &common.SignatureHeader{Nonce: nonce, Creator: creatorID}
+	signatureHeaderBytes, err := proto.Marshal(signatureHeader)
+	if err != nil {
+		return nil, "", err
+	}
+
 	// TODO: Change this header type once protobufs are merged into fabric
-	header := &common.Header{ChainHeader: &common.ChainHeader{Type: 6,
-		TxID:    txid,
-		ChainID: chainID},
-		SignatureHeader: &common.SignatureHeader{Nonce: nonce, Creator: creatorID}}
+	channelHeader := &common.ChannelHeader{Type: 6,
+		TxId:      txID,
+		ChannelId: chainID}
+	channelHeaderBytes, err := proto.Marshal(channelHeader)
+	if err != nil {
+		return nil, "", err
+	}
+
+	header := &common.Header{ChannelHeader: channelHeaderBytes,
+		SignatureHeader: signatureHeaderBytes}
 
 	payload := &common.Payload{
 		Header: header,
@@ -422,14 +437,14 @@ func (c *chain) CreateInvocationTransaction(chaincodeName string, chainID string
 	}
 	payloadBytes, err := proto.Marshal(payload)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	// Sign payload
 	signature, err := c.signObjectWithKey(payloadBytes,
 		user.GetPrivateKey(), &bccsp.SHAOpts{}, nil)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	envelope := &common.Envelope{
@@ -437,7 +452,7 @@ func (c *chain) CreateInvocationTransaction(chaincodeName string, chainID string
 		Payload:   payloadBytes,
 	}
 
-	return envelope, nil
+	return envelope, txID, nil
 }
 
 // SendInvocationTransaction broadcasts an invocation transaction through the
@@ -529,12 +544,6 @@ func (c *chain) CreateTransaction(proposal *pb.Proposal, resps []*pb.ProposalRes
 		return nil, err
 	}
 
-	// get the bytes of the signature header, that will be the header of the TransactionAction
-	sHdrBytes, err := protos_utils.GetBytesSignatureHeader(hdr.SignatureHeader)
-	if err != nil {
-		return nil, err
-	}
-
 	// serialize the chaincode action payload
 	cap := &pb.ChaincodeActionPayload{ChaincodeProposalPayload: propPayloadBytes, Action: cea}
 	capBytes, err := protos_utils.GetBytesChaincodeActionPayload(cap)
@@ -543,7 +552,7 @@ func (c *chain) CreateTransaction(proposal *pb.Proposal, resps []*pb.ProposalRes
 	}
 
 	// create a transaction
-	taa := &pb.TransactionAction{Header: sHdrBytes, Payload: capBytes}
+	taa := &pb.TransactionAction{Header: hdr.SignatureHeader, Payload: capBytes}
 	taas := make([]*pb.TransactionAction, 1)
 	taas[0] = taa
 	tx := &pb.Transaction{Actions: taas}

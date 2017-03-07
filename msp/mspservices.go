@@ -77,5 +77,5 @@ func (msps *Services) Enroll(enrollmentID string, enrollmentSecret string) ([]by
 	if err != nil {
 		return nil, nil, fmt.Errorf("Enroll failed: %s", err)
 	}
-	return id.GetECert().GetKey(), id.GetECert().GetCert(), nil
+	return id.GetECert().Key(), id.GetECert().Cert(), nil
 }

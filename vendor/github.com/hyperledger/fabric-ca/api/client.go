@@ -26,19 +26,22 @@ import (
 // RegistrationRequest for a new identity
 type RegistrationRequest struct {
 	// Name is the unique name of the identity
-	Name string `json:"id"`
+	Name string `json:"id" help:"Unique name of the identity"`
 	// Type of identity being registered (e.g. "peer, app, user")
-	Type string `json:"type"`
+	Type string `json:"type" help:"Type of identity being registered (e.g. 'peer, app, user')"`
 	// Secret is an optional password.  If not specified,
 	// a random secret is generated.  In both cases, the secret
 	// is returned in the RegistrationResponse.
-	Secret string `json:"secret,omitempty"`
+	Secret string `json:"secret,omitempty" help:"The enrollment secret for the identity being registered"`
 	// MaxEnrollments is the maximum number of times the secret can
 	// be reused to enroll.
-	MaxEnrollments int `json:"max_enrollments,omitempty"`
+	MaxEnrollments int `json:"max_enrollments,omitempty" help:"The maximum number of times the secret can be reused to enroll."`
 	// is returned in the response.
-	// Group name associated with the identity
-	Group string `json:"group"`
+	// The identity's affiliation.
+	// For example, an affiliation of "org1.department1" associates the identity with "department1" in "org1".
+	Affiliation string `json:"affiliation" help:"The identity's affiliation"`
+	// Attr is used to support a single attribute provided through the fabric-ca-client CLI
+	Attr string `help:"Attributes associated with this identity (e.g. hf.Revoker=true)"`
 	// Attributes associated with this identity
 	Attributes []Attribute `json:"attrs,omitempty"`
 }
@@ -52,17 +55,17 @@ type RegistrationResponse struct {
 // EnrollmentRequest is a request to enroll an identity
 type EnrollmentRequest struct {
 	// The identity name to enroll
-	Name string `json:"name"`
+	Name string `json:"name" skip:"true"`
 	// The secret returned via Register
-	Secret string `json:"secret,omitempty"`
+	Secret string `json:"secret,omitempty" skip:"true"`
 	// Hosts is a comma-separated host list in the CSR
-	Hosts string `json:"hosts,omitempty"`
+	Hosts string `json:"hosts,omitempty" help:"Comma-separated host list"`
 	// Profile is the name of the signing profile to use in issuing the certificate
-	Profile string `json:"profile,omitempty"`
+	Profile string `json:"profile,omitempty" help:"Name of the signing profile to use in issuing the certificate"`
 	// Label is the label to use in HSM operations
-	Label string `json:"label,omitempty"`
+	Label string `json:"label,omitempty" help:"Label to use in HSM operations"`
 	// CSR is Certificate Signing Request info
-	CSR *CSRInfo `json:"csr,omitempty"`
+	CSR *CSRInfo `json:"csr,omitempty" help:"Certificate Signing Request info"`
 }
 
 // ReenrollmentRequest is a request to reenroll an identity.

@@ -25,6 +25,8 @@ import (
 	"github.com/cloudflare/cfssl/signer"
 	"github.com/hyperledger/fabric-ca/api"
 	"github.com/hyperledger/fabric-ca/util"
+	"github.com/hyperledger/fabric/bccsp"
+	"github.com/hyperledger/fabric/bccsp/factory"
 )
 
 func newIdentity(client *Client, name string, key []byte, cert []byte) *Identity {
@@ -40,6 +42,7 @@ type Identity struct {
 	name   string
 	ecert  *Signer
 	client *Client
+	CSP    bccsp.BCCSP
 }
 
 // GetName returns the identity name
@@ -70,28 +73,41 @@ func (i *Identity) GetTCertBatch(req *api.GetTCertBatchRequest) ([]*Signer, erro
 
 // Register registers a new identity
 // @param req The registration request
-func (i *Identity) Register(req *api.RegistrationRequest) (*api.RegistrationResponse, error) {
+func (i *Identity) Register(req *api.RegistrationRequest) (rr *api.RegistrationResponse, err error) {
+	var reqBody []byte
+	var secret string
+	var resp interface{}
+
 	log.Debugf("Register %+v", req)
 	if req.Name == "" {
 		return nil, errors.New("Register was called without a Name set")
 	}
-	if req.Group == "" {
-		return nil, errors.New("Register was called without a Group set")
+	if req.Affiliation == "" {
+		return nil, errors.New("Registration request does not have an affiliation")
 	}
 
-	reqBody, err := util.Marshal(req, "RegistrationRequest")
+	reqBody, err = util.Marshal(req, "RegistrationRequest")
 	if err != nil {
 		return nil, err
 	}
 
 	// Send a post to the "register" endpoint with req as body
-	secret, err := i.Post("register", reqBody)
+	resp, err = i.Post("register", reqBody)
 	if err != nil {
 		return nil, err
 	}
 
+	switch resp.(type) {
+	case string:
+		secret = resp.(string)
+	case map[string]interface{}:
+		secret = resp.(map[string]interface{})["credential"].(string)
+	default:
+		return nil, fmt.Errorf("Response is neither string nor map: %+v", resp)
+	}
+
 	log.Debug("The register request completely successfully")
-	return &api.RegistrationResponse{Secret: secret.(string)}, nil
+	return &api.RegistrationResponse{Secret: secret}, nil
 }
 
 // Reenroll reenrolls an existing Identity and returns a new Identity
@@ -177,10 +193,23 @@ func (i *Identity) addTokenAuthHdr(req *http.Request, body []byte) error {
 	log.Debug("adding token-based authorization header")
 	cert := i.ecert.cert
 	key := i.ecert.key
-	token, err := util.CreateToken(cert, key, body)
+	if i.CSP == nil {
+		i.CSP = factory.GetDefault()
+	}
+	token, err := util.CreateToken(i.CSP, cert, key, body)
 	if err != nil {
 		return fmt.Errorf("Failed to add token authorization header: %s", err)
 	}
 	req.Header.Set("authorization", token)
 	return nil
+}
+
+// GetMyKeyFile returns the path to this identity's key file
+func (i *Identity) GetMyKeyFile() string {
+	return i.client.GetMyKeyFile()
+}
+
+// GetMyCertFile returns the path to this identity's key file
+func (i *Identity) GetMyCertFile() string {
+	return i.client.GetMyCertFile()
 }

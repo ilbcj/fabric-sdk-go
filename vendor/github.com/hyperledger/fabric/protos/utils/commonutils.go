@@ -101,6 +101,34 @@ func UnmarshalEnvelope(encoded []byte) (*cb.Envelope, error) {
 	return envelope, err
 }
 
+// UnmarshalEnvelopeOfType unmarshals an envelope of the specified type, including
+// the unmarshaling the payload data
+func UnmarshalEnvelopeOfType(envelope *cb.Envelope, headerType cb.HeaderType, message proto.Message) (*cb.ChannelHeader, error) {
+	payload, err := UnmarshalPayload(envelope.Payload)
+	if err != nil {
+		return nil, err
+	}
+
+	if payload.Header == nil {
+		return nil, fmt.Errorf("Envelope must have a Header")
+	}
+
+	chdr, err := UnmarshalChannelHeader(payload.Header.ChannelHeader)
+	if err != nil {
+		return nil, fmt.Errorf("Invalid ChannelHeader")
+	}
+
+	if chdr.Type != int32(headerType) {
+		return nil, fmt.Errorf("Not a tx of type %v", headerType)
+	}
+
+	if err = proto.Unmarshal(payload.Data, message); err != nil {
+		return nil, fmt.Errorf("Error unmarshaling message for type %v: %s", headerType, err)
+	}
+
+	return chdr, nil
+}
+
 // ExtractEnvelopeOrPanic retrieves the requested envelope from a given block and unmarshals it -- it panics if either of these operation fail.
 func ExtractEnvelopeOrPanic(block *cb.Block, index int) *cb.Envelope {
 	envelope, err := ExtractEnvelope(block, index)
@@ -142,17 +170,17 @@ func ExtractPayload(envelope *cb.Envelope) (*cb.Payload, error) {
 	return payload, nil
 }
 
-// MakeChainHeader creates a ChainHeader.
-func MakeChainHeader(headerType cb.HeaderType, version int32, chainID string, epoch uint64) *cb.ChainHeader {
-	return &cb.ChainHeader{
+// MakeChannelHeader creates a ChannelHeader.
+func MakeChannelHeader(headerType cb.HeaderType, version int32, chainID string, epoch uint64) *cb.ChannelHeader {
+	return &cb.ChannelHeader{
 		Type:    int32(headerType),
 		Version: version,
 		Timestamp: &timestamp.Timestamp{
 			Seconds: time.Now().Unix(),
 			Nanos:   0,
 		},
-		ChainID: chainID,
-		Epoch:   epoch,
+		ChannelId: chainID,
+		Epoch:     epoch,
 	}
 }
 
@@ -164,11 +192,23 @@ func MakeSignatureHeader(serializedCreatorCertChain []byte, nonce []byte) *cb.Si
 	}
 }
 
+func SetTxID(channelHeader *cb.ChannelHeader, signatureHeader *cb.SignatureHeader) error {
+	txid, err := ComputeProposalTxID(
+		signatureHeader.Nonce,
+		signatureHeader.Creator,
+	)
+	if err != nil {
+		return err
+	}
+	channelHeader.TxId = txid
+	return nil
+}
+
 // MakePayloadHeader creates a Payload Header.
-func MakePayloadHeader(ch *cb.ChainHeader, sh *cb.SignatureHeader) *cb.Header {
+func MakePayloadHeader(ch *cb.ChannelHeader, sh *cb.SignatureHeader) *cb.Header {
 	return &cb.Header{
-		ChainHeader:     ch,
-		SignatureHeader: sh,
+		ChannelHeader:   MarshalOrPanic(ch),
+		SignatureHeader: MarshalOrPanic(sh),
 	}
 }
 
@@ -196,4 +236,15 @@ func SignOrPanic(signer crypto.LocalSigner, msg []byte) []byte {
 		panic(fmt.Errorf("Failed generting signature [%s]", err))
 	}
 	return sigma
+}
+
+// UnmarshalChannelHeader returns a ChannelHeader from bytes
+func UnmarshalChannelHeader(bytes []byte) (*cb.ChannelHeader, error) {
+	chdr := &cb.ChannelHeader{}
+	err := proto.Unmarshal(bytes, chdr)
+	if err != nil {
+		return nil, fmt.Errorf("UnmarshalChannelHeader failed, err %s", err)
+	}
+
+	return chdr, nil
 }

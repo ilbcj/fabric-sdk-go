@@ -100,8 +100,8 @@ func TestCreateInvocationTransaction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create chain: %s", err)
 	}
-	envelope, err := chain.CreateInvocationTransaction("testChaincode",
-		"testChain", []string{"test"}, "123", nil)
+	envelope, _, err := chain.CreateInvocationTransaction("testChaincode",
+		"testChain", []string{"test"}, nil)
 	if err != nil {
 		t.Fatalf("Got unexpected error from CreateInvocationTransaction: %s", err)
 	}
@@ -110,17 +110,23 @@ func TestCreateInvocationTransaction(t *testing.T) {
 	}
 	// Unmarshal payload
 	payload := &cb.Payload{}
-	if err := proto.Unmarshal(envelope.Payload, payload); err != nil {
+	if err = proto.Unmarshal(envelope.Payload, payload); err != nil {
 		t.Fatalf("Invalid payload")
 	}
 	// Unmarshal proposal
 	proposal := &pb.SignedProposal{}
-	if err := proto.Unmarshal(payload.Data, proposal); err != nil {
+	if err = proto.Unmarshal(payload.Data, proposal); err != nil {
 		t.Fatalf("Invalid proposal")
 	}
 	// Verify header type
+	headerBytes := payload.Header.ChannelHeader
+	header := &common.ChannelHeader{}
+	err = proto.Unmarshal(headerBytes, header)
+	if err != nil {
+		t.Fatalf("Error unmarshalling channel header: %s", err)
+	}
 	// TODO: Change header type once protobuf changes are merged in
-	if payload.Header.GetChainHeader().Type != 6 {
+	if header.Type != 6 {
 		t.Fatalf("Invalid header type")
 	}
 }
