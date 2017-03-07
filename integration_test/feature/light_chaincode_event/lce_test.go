@@ -42,8 +42,8 @@ func TestLCE(t *testing.T) {
 	// Get invoke chain
 	_, invokechain := testSetup.GetChains(t)
 
-	// Generate transaction id
-	txId := util.GenerateUUID()
+	// Generate event id
+	eventID := util.GenerateUUID()
 
 	// Light Chaincode Event system chaincode id
 	lcesccId := "lcescc"
@@ -53,7 +53,7 @@ func TestLCE(t *testing.T) {
 		RegInfo: &pb.Interest_ChaincodeRegInfo{
 			ChaincodeRegInfo: &pb.ChaincodeReg{
 				ChaincodeId: lcesccId,
-				EventName:   txId}}}}
+				EventName:   eventID}}}}
 
 	// Register interest with event hub
 	eventHub := testSetup.GetEventHub(t, interestedEvents)
@@ -63,7 +63,7 @@ func TestLCE(t *testing.T) {
 	done := make(chan bool)
 
 	// Register callback for specific LCE
-	lce := eventHub.RegisterChaincodeEvent(lcesccId, txId, func(ce *pb.ChaincodeEvent) {
+	lce := eventHub.RegisterChaincodeEvent(lcesccId, eventID, func(ce *pb.ChaincodeEvent) {
 		fmt.Printf("Received LCE event ( %s ): \n%v\n", time.Now().Format(time.RFC850), ce)
 		done <- true
 	})
@@ -71,21 +71,21 @@ func TestLCE(t *testing.T) {
 	defer eventHub.UnregisterChaincodeEvent(lce)
 
 	// Generate LCE with eventId=txId
-	invokeLCEWithTxID(t, invokechain, lcesccId, txId)
+	invokeLCEWithTxID(t, invokechain, lcesccId, eventID)
 
 	select {
 	case <-done:
 	case <-time.After(time.Second * 20):
-		t.Fatalf("Did NOT receive LCE for eventId(%s)\n", txId)
+		t.Fatalf("Did NOT receive LCE for eventId(%s)\n", eventID)
 	}
 
 }
 
-func invokeLCEWithTxID(t *testing.T, chain fabric_sdk.Chain, lcesccId string, txId string) {
+func invokeLCEWithTxID(t *testing.T, chain fabric_sdk.Chain, lcesccId string, eventID string) {
 
 	var args []string
 	args = append(args, "invoke")
-	args = append(args, txId)
+	args = append(args, eventID)
 	args = append(args, "Test Payload")
 
 	signedProposal, _, _, err := chain.CreateTransactionProposal(lcesccId, chainId, args, true, nil)

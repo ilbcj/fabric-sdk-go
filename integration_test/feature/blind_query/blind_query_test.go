@@ -35,7 +35,7 @@ func TestBlindQuery(t *testing.T) {
 	initializeClientConfig(t)
 	testSetup := integration.BaseSetupImpl{}
 
-	// Generate transaction id
+	// Generate event id
 	eventID := util.GenerateUUID()
 
 	// Light Chaincode Event system chaincode id
@@ -78,7 +78,7 @@ func TestBlindQuery(t *testing.T) {
 
 	select {
 	case <-done:
-	case <-time.After(time.Second * 10):
+	case <-time.After(time.Second * 20):
 		t.Fatalf("Did NOT receive LCE for eventId(%s)\n", eventID)
 	}
 }
